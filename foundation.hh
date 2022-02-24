@@ -236,8 +236,8 @@ typedef i8  b8;
 typedef i16 b16;
 typedef i32 b32;
 typedef i64 b64;
-typedef float  r32;
-typedef double r64;
+typedef float  f32;
+typedef double f64;
 typedef size_t size;
 typedef u8 byte;
 typedef void  voidf(void);
@@ -258,13 +258,13 @@ global u16 u16_Max = 0xFFFF;
 global u32 u32_Max = 0xFFFFFFFF;
 global u64 u64_Max = 0xFFFFFFFFFFFFFFFFllu;
 
-global r32 r32_Pi  = 3.14159265359f;
-global r32 r32_Tau = 6.28318530718f;
-global r32 r32_e   = 2.71828182846f;
+global f32 r32_Pi  = 3.14159265359f;
+global f32 r32_Tau = 6.28318530718f;
+global f32 r32_e   = 2.71828182846f;
 
-global r64 r64_Pi  = 3.14159265359;
-global r64 r64_Tau = 6.28318530718;
-global r64 r64_e   = 2.71828182846;
+global f64 r64_Pi  = 3.14159265359;
+global f64 r64_Tau = 6.28318530718;
+global f64 r64_e   = 2.71828182846;
 
 typedef u64 dense_time;
 struct date_time {
@@ -517,7 +517,6 @@ internal temp_mem GetScratch(arena **ConflictArray, size Count) {
 #define ReleaseScratch(Temp) TempMemEnd(Temp)
 
 // Arrays.
-// Array.
 template <typename type> struct array {
 	type *Data;
   size Len;
@@ -526,6 +525,12 @@ template <typename type> struct array {
 	type &operator[](size Idx) { return Data[Idx]; }
 };
 
+template <typename type> void PreallocArray(array<type> *Array, arena *Arena, size Cap) {
+  type *Data = PushArray(Arena, type, Cap);
+  Array->Data = Data;
+  Array->Cap  = Cap;
+  Array->Len  = 0;
+}
 template <typename type> int ArrayGrow(array<type> *Array) {
   if (Array->Len + 1 > Array->Cap) {
     size NewCap  = (Array->Cap == 0)? 8 : Array->Cap * 2;
@@ -548,8 +553,6 @@ template <typename type> void ArrayPut(array<type> *Array, type x) {
 	Array->Len++;
 }
 
-#define aput(a, x) ArrayPut(&a, x)
-
 // List.
 template <typename type> struct list {
 	type *Data;
@@ -566,10 +569,7 @@ template <typename type> list<type> ListCopyFromArray(array<type> *Array) {
   return {Data, Array->Len};
 }
 
-
-
-///////////////////////////////////////
-// HASHES
+// Map.
 internal u64 u64Hash(u64 x) {
   x *= 0xff51afd7ed558ccdull;
   x ^= x >> 32;
@@ -594,7 +594,7 @@ internal u64 BytesHash(void *Ptr, size Len) {
   }
   return x;
 }
-internal u64 StrHashRange(const c8 *Start, const c8 *End) {
+internal u64 StrHashRange(c8 *Start, c8 *End) {
   u64 x = 0xcbf29ce484222325ull;
   while (Start != End) {
     x ^= *Start++;
@@ -605,16 +605,73 @@ internal u64 StrHashRange(const c8 *Start, const c8 *End) {
 }
 
 // Hash map.
-typedef struct _map_entry {
+template <typename type> struct map_entry {
   void *Key;
-  void *Val;
-} map_entry;
-typedef struct _map {
-  map_entry *Entries;
+  type  Val;
+};
+template <typename type> struct map {
+  map_entry<type> *Entries;
   size Len;
   size Cap;
-} map;
+};
 
+template <typename type> void MapPut(map<type> *Map, u64 Key, type *Val);
+template <typename type> void MapGrow(map<type> *Map, u64 NewCap) {
+  NewCap = Max(16, NewCap);
+  map<type> NewMap = {};
+  NewMap.Cap       = NewCap;
+  NewMap.Entries   = (map_entry<type>*)MemRes(NewCap*sizeof(map_entry<type>));
+  if (MemCom(NewMap.Entries, NewCap*sizeof(map_entry<type>))) {
+    itrn (i, Map->Cap) {
+      map_entry<type> *Entry = Map->Entries + i;
+      if (Entry->Key)
+        MapPut(&NewMap, Entry->Key, Entry->Val);
+    }
+    MemRel(Map->Entries, Map->Cap);
+  }
+  *Map = NewMap;
+}
+template <typename type> type MapGet(map<type> *Map, void *Key) {
+  if (Map->Len == 0)
+    return null;
+  Assert(IsPow2(Map->Cap));
+  Assert(Map->Len < Map->Cap);
+  size i = (size)PtrHash(Key);
+  while (true) {
+    i &= Map->Cap - 1;
+    map_entry<type> *Entry = Map->Entries + i;
+    if (Entry->Key == Key)
+      return Entry->Val;
+    else
+    if (!Entry->Key)
+      return null;
+    i++;
+  }
+  return null;
+}
+template <typename type> void MapPut(map<type> *Map, void *Key, type Val) {
+  Assert(Key);
+  if (2*Map->Len >= Map->Cap)
+    MapGrow(Map, 2*Map->Cap);
+  Assert(2*Map->Len < Map->Cap);
+  size i = (size)PtrHash(Key);
+  while (true) {
+    i &= Map->Cap - 1;
+    map_entry<type> *Entry = Map->Entries + i;
+    if (!Entry->Key) {
+      Map->Len++;
+      Entry->Key = Key;
+      Entry->Val = Val;
+      return;
+    }
+    else
+    if (Entry->Key == Key) {
+      Entry->Val = Val;
+      return;
+    }
+    i++;
+  }
+}
 
 
 ///////////////////////////////////////
@@ -772,6 +829,25 @@ internal str PushStrCopy(arena *Arena, str Str) {
   Res.Str[Res.Len] = 0;
   return Res;
 }
+internal b32 MatchStr(str a, str b, b32 MatchCase) {
+  b32 Res = false;
+  if (a.Len = b.Len) {
+    Res = true;
+    for (size i = 0; i < a.Len; i++) {
+      c8 CharA = a.Str[i];
+      c8 CharB = b.Str[i];
+      if (!MatchCase) {
+        CharA = ToUpper(CharA);
+        CharB = ToUpper(CharB);
+      }
+      if (CharA != CharB) {
+        Res = false;
+        break;
+      }
+    }
+  }
+  return Res;
+}
 internal str ChopStrBeforeLastSlash(str Str) {
   str Res = Str;
   if (Str.Len > 0) {
@@ -799,43 +875,6 @@ internal str ChopStrAfterLastSlash(str Str) {
     }
     Res.Len = Pos;
   }
-  return Res;
-}
-internal b32 MatchStr(str a, str b, b32 MatchCase) {
-  b32 Res = false;
-  if (a.Len = b.Len) {
-    Res = true;
-    for (size i = 0; i < a.Len; i++) {
-      c8 CharA = a.Str[i];
-      c8 CharB = b.Str[i];
-      if (!MatchCase) {
-        CharA = ToUpper(CharA);
-        CharB = ToUpper(CharB);
-      }
-      if (CharA != CharB) {
-        Res = false;
-        break;
-      }
-    }
-  }
-  return Res;
-}
-internal b32 StrEndsWith(str Str, str Ext) {
-  b32 Res = false;
-  if (Str.Len > Ext.Len) {
-    itrn (i, Ext.Len)
-      Res = (Str.Str[Str.Len - i - 1] == Ext.Str[i]);
-  }
-  return Res;
-}
-internal str ConcatStrs(arena *Arena, str a, str b) {
-  i32 Len = a.Len + b.Len;
-  str Res = str_(PushArray(Arena, c8, Len), Len);
-  size i = 0;
-  while (i < a.Len)
-    Res.Str[i++] = a.Str[i];
-  while (i < Len)
-    Res.Str[i++] = b.Str[i - a.Len];
   return Res;
 }
 

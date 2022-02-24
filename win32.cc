@@ -304,7 +304,7 @@ typedef struct _win32_file_iterator {
   b32 Done;
 } win32_file_iterator;
 StaticAssert(sizeof(win32_file_iterator) <= sizeof(os_file_iterator), os_file_iterator);
-internal os_file_iterator OsFileIteratorInit(arena *Arena, str8 Path) {
+internal os_file_iterator OsFileIteratorInit(str8 Path) {
   str_node Nodes[2];
   str_list List = {0};
   PushNodeToStrList(&List, Nodes + 0, Path);
@@ -419,7 +419,7 @@ internal u64 OsNowMicroseconds(void) {
   }
   return Res;
 }
-internal void OsSleepMilliseconds(u32 t) { Sleep(t); }
+internal void OsSleepMilliseconds(u64 t) { Sleep(t); }
 
 
 

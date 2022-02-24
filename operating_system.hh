@@ -61,8 +61,8 @@ internal date_time OsNowUniversalTime(void);
 internal date_time OsLocalTimeFromUniversal(date_time *DateTime);
 internal date_time OsUniversalTimeFromLocal(date_time *DateTime);
 
-internal u64 OsNowMicroSecods(void);
-internal void OsSleepMilliSeconds(u64 t);
+internal u64 OsNowMicroseconds(void);
+internal void OsSleepMilliseconds(u64 t);
 
 
 
