@@ -1,0 +1,11 @@
+{
+  "files.associations": {
+    "foundation.h": "c",
+    "wglext.h": "c",
+    "application.h": "c",
+    "emmintrin.h": "c",
+    "platform.h": "c",
+    "restructured_foundation.h": "c",
+    "windows.h": "c"
+  }
+}
