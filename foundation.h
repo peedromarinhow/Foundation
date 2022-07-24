@@ -219,21 +219,21 @@ typedef i64 b64;
 // COMPUND TYPES
 typedef union _i32v2 {
   struct {
-    i32 X, Y;
+    i32 x, y;
   };
   struct {
-    i32 W, H;
+    i32 w, h;
   };
-	i32 C[2];
+	i32 c[2];
 } i32v2;
 typedef union _r32v2 {
   struct {
-    r32 X, Y;
+    r32 x, y;
   };
   struct {
-    r32 W, H;
+    r32 w, h;
   };
-	r32 C[2];
+	r32 c[2];
 } r32v2;
 
 typedef union _u64r1 {
@@ -243,39 +243,39 @@ typedef union _u64r1 {
   struct  {
     u64 First, AfterLast;
   };
-  u64 C[2];
+  u64 c[2];
 } u64r1;
 typedef union _r32r1 {
   struct  {
     r32 Min, Max;
   };
-  r32 C[2];
+  r32 c[2];
 } r32r1;
 typedef union _i32r2 {
   struct {
     i32v2 Min, Max;
   };
   struct {
-    i32v2 P1, P2;
+    i32v2 p1, p2;
   };
   struct {
-    r32 X0, Y0, X1, Y1;
+    r32 x0, y0, x1, y1;
   };
-  i32v2 V[2];
-  i32   C[4];
+  i32v2 v[2];
+  i32   c[4];
 } i32r2;
 typedef union _r32r2 {
   struct {
     r32v2 Min, Max;
   };
   struct {
-    r32v2 P1, P2;
+    r32v2 p1, p2;
   };
   struct {
-    r32 X0, Y0, X1, Y1;
+    r32 x0, y0, x1, y1;
   };
-  r32v2 V[2];
-  r32   C[4];
+  r32v2 v[2];
+  r32   c[4];
 } r32r2;
 
 ////////////////////////
@@ -354,9 +354,9 @@ inline r32   r32r2Mid(r32r2);
 ////////////////////////
 // MEMORY
 enum _mem_flags {
-  mem_NotReadable = Flag(0),
-  mem_NotWritable = Flag(1),
-  mem_NotRunnable = Flag(2),
+  mem_Unaccessible = Flag(0),
+  mem_Readonly = Flag(1),
+  mem_Runnable = Flag(2),
 };
 
 typedef struct _pool {
@@ -475,7 +475,7 @@ typedef struct _file_properties {
 function byte *SysMemReserve(size, u32);
 function void  SysMemRelease(byte*, size);
 
-function u64  SysGetMicroseconds(); //.note: Does not return 'dense_time'!
+function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
 function void SysSleep(u32);
 
 function file_properties SysGetFileProps(str8);
@@ -485,6 +485,32 @@ function b32  SysDeleteFile(str8);
 function b32  SysRenameFile(str8, str8);
 function b32  SysCreateDir (str8);
 function b32  SysDeleteDir (str8);
+
+function b32 SysInit(i32, c8**);
+function void SysEnd(void);
+
+////////////////////////
+// SYSTEM WINDOW
+typedef struct _window window;
+#define WINDOW_COMMON struct { \
+  b32 Error;                   \
+  b32 Quit;                    \
+}
+function void SysGetInput(window*);
+
+////////////////////////
+// OPENGL
+typedef void gl_clear_color_proc(r32, r32, r32, r32);
+typedef void gl_clear_proc(u32);
+#define WINDOW_OPENGL_COMMON struct { \
+  gl_clear_color_proc *GlClearColor;  \
+  gl_clear_proc       *GlClear;       \
+}
+#define GL_COLOR_BUFFER_BIT 0x00004000
+
+function window *SysCreateWindowWithOpenGL(void);
+function void    SysBeginRenderingWithOpenGL(window*);
+function void    SysEndRenderingWithOpenGL  (window*);
 
 #endif//FOUNDATION_HEADER
 
@@ -1001,11 +1027,11 @@ global u64   GlobalWin32TicksUponStart;
 // MEMORY
 function byte *SysMemReserve(size Size, u32 Flags) {
   u32 ProtectionFlags = 0;
-  if (Flags & mem_NotReadable)
+  if (Flags & mem_Unaccessible)
     ProtectionFlags |= PAGE_NOACCESS;
-  if (Flags & mem_NotWritable)
+  if (Flags & mem_Readonly)
     ProtectionFlags |= PAGE_READONLY;
-  if (!(Flags & mem_NotRunnable))
+  if (Flags & mem_Runnable)
     ProtectionFlags |= PAGE_EXECUTE;
   if (!(ProtectionFlags & (PAGE_READONLY|PAGE_NOACCESS)))
     ProtectionFlags |= PAGE_READWRITE;
@@ -1119,6 +1145,8 @@ function b32 SysDeleteDir(str8 Path) {
   return Success;
 }
 
+////////////////////////
+// SETUP
 function b32 SysInit(i32 Argc, c8 **Argv) {
   pool *Pool = PoolReserve(0);
 
@@ -1145,8 +1173,306 @@ function b32 SysInit(i32 Argc, c8 **Argv) {
   return true;
 }
 
-function void SysKill() {
+function void SysEnd() {
   PoolRelease(GlobalWin32Pool);
+}
+
+// GRAPHICS
+#define WGL_ARB_pixel_format 1
+#define WGL_NUMBER_PIXEL_FORMATS_ARB      0x2000
+#define WGL_DRAW_TO_WINDOW_ARB            0x2001
+#define WGL_DRAW_TO_BITMAP_ARB            0x2002
+#define WGL_ACCELERATION_ARB              0x2003
+#define WGL_NEED_PALETTE_ARB              0x2004
+#define WGL_NEED_SYSTEM_PALETTE_ARB       0x2005
+#define WGL_SWAP_LAYER_BUFFERS_ARB        0x2006
+#define WGL_SWAP_METHOD_ARB               0x2007
+#define WGL_NUMBER_OVERLAYS_ARB           0x2008
+#define WGL_NUMBER_UNDERLAYS_ARB          0x2009
+#define WGL_TRANSPARENT_ARB               0x200A
+#define WGL_TRANSPARENT_RED_VALUE_ARB     0x2037
+#define WGL_TRANSPARENT_GREEN_VALUE_ARB   0x2038
+#define WGL_TRANSPARENT_BLUE_VALUE_ARB    0x2039
+#define WGL_TRANSPARENT_ALPHA_VALUE_ARB   0x203A
+#define WGL_TRANSPARENT_INDEX_VALUE_ARB   0x203B
+#define WGL_SHARE_DEPTH_ARB               0x200C
+#define WGL_SHARE_STENCIL_ARB             0x200D
+#define WGL_SHARE_ACCUM_ARB               0x200E
+#define WGL_SUPPORT_GDI_ARB               0x200F
+#define WGL_SUPPORT_OPENGL_ARB            0x2010
+#define WGL_DOUBLE_BUFFER_ARB             0x2011
+#define WGL_STEREO_ARB                    0x2012
+#define WGL_PIXEL_TYPE_ARB                0x2013
+#define WGL_COLOR_BITS_ARB                0x2014
+#define WGL_RED_BITS_ARB                  0x2015
+#define WGL_RED_SHIFT_ARB                 0x2016
+#define WGL_GREEN_BITS_ARB                0x2017
+#define WGL_GREEN_SHIFT_ARB               0x2018
+#define WGL_BLUE_BITS_ARB                 0x2019
+#define WGL_BLUE_SHIFT_ARB                0x201A
+#define WGL_ALPHA_BITS_ARB                0x201B
+#define WGL_ALPHA_SHIFT_ARB               0x201C
+#define WGL_ACCUM_BITS_ARB                0x201D
+#define WGL_ACCUM_RED_BITS_ARB            0x201E
+#define WGL_ACCUM_GREEN_BITS_ARB          0x201F
+#define WGL_ACCUM_BLUE_BITS_ARB           0x2020
+#define WGL_ACCUM_ALPHA_BITS_ARB          0x2021
+#define WGL_DEPTH_BITS_ARB                0x2022
+#define WGL_STENCIL_BITS_ARB              0x2023
+#define WGL_AUX_BUFFERS_ARB               0x2024
+#define WGL_NO_ACCELERATION_ARB           0x2025
+#define WGL_GENERIC_ACCELERATION_ARB      0x2026
+#define WGL_FULL_ACCELERATION_ARB         0x2027
+#define WGL_SWAP_EXCHANGE_ARB             0x2028
+#define WGL_SWAP_COPY_ARB                 0x2029
+#define WGL_SWAP_UNDEFINED_ARB            0x202A
+#define WGL_TYPE_RGBA_ARB                 0x202B
+#define WGL_TYPE_COLORINDEX_ARB           0x202C
+
+#define WGL_CONTEXT_DEBUG_BIT_ARB         0x00000001
+#define WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB 0x00000002
+#define WGL_CONTEXT_MAJOR_VERSION_ARB     0x2091
+#define WGL_CONTEXT_MINOR_VERSION_ARB     0x2092
+#define WGL_CONTEXT_LAYER_PLANE_ARB       0x2093
+#define WGL_CONTEXT_FLAGS_ARB             0x2094
+
+#define WGL_CONTEXT_PROFILE_MASK_ARB      0x9126
+#define WGL_CONTEXT_CORE_PROFILE_BIT_ARB  0x00000001
+#define WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB 0x00000002
+
+typedef HGLRC wgl_create_context_proc(HDC);
+typedef BOOL  wgl_delete_context_proc(HGLRC);
+typedef BOOL  wgl_make_current_proc(HDC, HGLRC);
+typedef PROC  wgl_get_proc_address_proc(LPCSTR);
+
+typedef BOOL  wgl_choose_pixel_format_arb_proc(HDC, const int*, const float*, UINT, int*, UINT*);
+typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
+
+struct _window {
+  WINDOW_COMMON;
+  WINDOW_OPENGL_COMMON;
+
+  wgl_make_current_proc *WglMakeCurrent;
+
+  HWND  WindowHandle;
+  HDC   DeviceContext;
+  HGLRC OpenglContext;
+
+  void *MainFiber;
+  void *MessageFiber;
+};
+
+LRESULT CALLBACK WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
+  LRESULT Result = 0;
+  window *Window = cast(window*, GetWindowLongPtr(WindowHandle, GWLP_USERDATA));
+  switch (Message) {
+    case WM_DESTROY:
+      Window->Quit = true;
+      break;
+    case WM_TIMER:
+      SwitchToFiber(Window->MainFiber);
+      break;
+    case WM_ENTERMENULOOP:
+    case WM_ENTERSIZEMOVE:
+      SetTimer(WindowHandle, 1, 1, 0);
+      break;
+    case WM_EXITMENULOOP:
+    case WM_EXITSIZEMOVE:
+      KillTimer(WindowHandle, 1);
+      break;
+    default:
+      Result = DefWindowProcW(WindowHandle, Message, wParam, lParam);
+  }
+  return Result;
+}
+function void CALLBACK MessageFiberProc(void *MainFiber) {
+  while (true) {
+    MSG Message;
+    while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
+      TranslateMessage(&Message);
+      DispatchMessage(&Message);
+    }
+    SwitchToFiber(MainFiber);
+  }
+}
+
+function void SysGetInput(window *Window) {
+  SwitchToFiber(Window->MessageFiber);
+}
+function window *SysCreateWindowWithOpenGL(void) {
+  window *Window = PoolPush(GlobalWin32Pool, sizeof(window));
+  ZeroMemory(Window, sizeof(*Window));
+  Window->MainFiber    = ConvertThreadToFiber(0);
+  Window->MessageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)MessageFiberProc, Window->MainFiber);
+  Assert(Window->MainFiber && Window->MessageFiber);
+
+  HINSTANCE Instance = GetModuleHandleW(null);
+  HMODULE OpenglModule = LoadLibraryA("opengl32.dll");
+  if (OpenglModule == 0) {
+    fprintf(stderr, "Could not load opengl module.");
+    Window->Error = true;
+    return Window;
+  }
+  wgl_create_context_proc   *WglCreateContextProc  = cast(wgl_create_context_proc*,   GetProcAddress(OpenglModule, "wglCreateContext"));
+  wgl_delete_context_proc   *WglDeleteContextProc  = cast(wgl_delete_context_proc*,   GetProcAddress(OpenglModule, "wglDeleteContext"));
+  wgl_make_current_proc     *WglMakeCurrentProc    = cast(wgl_make_current_proc*,     GetProcAddress(OpenglModule, "wglMakeCurrent"));
+  wgl_get_proc_address_proc *WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenglModule, "wglGetProcAddress"));
+  if (!WglCreateContextProc || !WglMakeCurrentProc || !WglGetProcAddressProc) {
+    fprintf(stderr, "Could not load opengl module functions.");
+    Window->Error = true;
+    return Window;
+  }
+
+  // Creating dummy class and window so that we can load modern opengl stuff.
+  WNDCLASSW DummyClass = {0};
+  DummyClass.lpfnWndProc   = DefWindowProcW;
+  DummyClass.hInstance     = Instance;
+  DummyClass.lpszClassName = L"dummy class";
+  if (!RegisterClassW(&DummyClass)) {
+    fprintf(stderr, "Could not create window class.");
+    Window->Error = true;
+    return Window;
+  }
+  HWND DummyWindowHandle = CreateWindowW(L"dummy class", L"dummy title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Instance, 0);
+  if (!DummyWindowHandle) {
+    fprintf(stderr, "Could not create dummy window for loading opengl.");
+    Window->Error = true;
+    return Window;
+  }
+  HDC DummyDeviceContext = GetDC(DummyWindowHandle);
+  PIXELFORMATDESCRIPTOR DummyPixelFormatDescriptor = {0};
+  DummyPixelFormatDescriptor.nSize      = sizeof(DummyPixelFormatDescriptor);
+  DummyPixelFormatDescriptor.nVersion   = 1;
+  DummyPixelFormatDescriptor.dwFlags    = PFD_SUPPORT_OPENGL;
+  DummyPixelFormatDescriptor.iPixelType = PFD_TYPE_RGBA;
+  DummyPixelFormatDescriptor.cColorBits = 24;
+  INT DummyPixelFormatIdx = ChoosePixelFormat(DummyDeviceContext, &DummyPixelFormatDescriptor);
+  if (!DummyPixelFormatIdx) {
+    fprintf(stderr, "Could not choose dummy pixel format.");
+    ReleaseDC(DummyWindowHandle, DummyDeviceContext);
+    Window->Error = true;
+    return Window;
+  }
+  if (!SetPixelFormat(DummyDeviceContext, DummyPixelFormatIdx, &DummyPixelFormatDescriptor)) {
+    fprintf(stderr, "Could not set dummy pixel format.");
+    ReleaseDC(DummyWindowHandle, DummyDeviceContext);
+    Window->Error = true;
+    return Window;
+  }
+
+  HGLRC DummyOpenglContext = WglCreateContextProc(DummyDeviceContext);
+  if (!DummyOpenglContext) {
+    fprintf(stderr, "Could not create dummy opengl context.");
+    ReleaseDC(DummyWindowHandle, DummyDeviceContext);
+    Window->Error = true;
+    return Window;
+  }
+
+  WglMakeCurrentProc(DummyDeviceContext, DummyOpenglContext);
+  wgl_choose_pixel_format_arb_proc    *WglChoosePixelFormatARBProc    = cast(wgl_choose_pixel_format_arb_proc*,    WglGetProcAddressProc("wglChoosePixelFormatARB"));
+  wgl_create_context_attribs_arb_proc *WglCreateContextAttribsARBProc = cast(wgl_create_context_attribs_arb_proc*, WglGetProcAddressProc("wglCreateContextAttribsARB"));
+  if (!WglChoosePixelFormatARBProc || !WglCreateContextAttribsARBProc) {
+    fprintf(stderr, "Could not load opengl functions.");
+    ReleaseDC(DummyWindowHandle, DummyDeviceContext);
+    Window->Error = true;
+    return Window;
+  }
+
+  WglMakeCurrentProc(null, null);
+  ReleaseDC(DummyWindowHandle, DummyDeviceContext);
+  Assert(WglDeleteContextProc(DummyOpenglContext));
+  Assert(DestroyWindow(DummyWindowHandle));
+
+  // Now the actual window.
+  WNDCLASSW Class = {0};
+  Class.lpfnWndProc   = WindowProc;
+  Class.hInstance     = Instance;
+  Class.hCursor       = LoadCursor(0, IDC_ARROW);
+  Class.lpszClassName = L"actual class";
+  if (!RegisterClassW(&Class)) {
+    fprintf(stderr, "Could not create window class.");
+    Window->Error = true;
+    return Window;
+  }
+  Window->WindowHandle = CreateWindowW(L"actual class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Instance, 0);
+  if (!Window->WindowHandle) {
+    fprintf(stderr, "Could not create window.");
+    Window->Error = true;
+    return Window;
+  }
+  SetWindowLongPtr(Window->WindowHandle, GWLP_USERDATA, (LONG_PTR)Window);
+
+  Window->DeviceContext = GetDC(Window->WindowHandle);
+  INT FormatAttribs[] = {
+    WGL_DRAW_TO_WINDOW_ARB, true,
+    WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB,
+    WGL_SWAP_METHOD_ARB,    WGL_SWAP_EXCHANGE_ARB,
+    WGL_SUPPORT_OPENGL_ARB, true,
+    WGL_DOUBLE_BUFFER_ARB,  true,
+    WGL_PIXEL_TYPE_ARB,     WGL_TYPE_RGBA_ARB,
+    WGL_COLOR_BITS_ARB,     24,
+    WGL_RED_BITS_ARB,       8,
+    WGL_GREEN_BITS_ARB,     8,
+    WGL_BLUE_BITS_ARB,      8,
+    0,
+  };
+  INT  PixelFormatIdx  = 0;
+  UINT NumberOfFormats = 0;
+  if(!WglChoosePixelFormatARBProc(Window->DeviceContext, FormatAttribs, null, 1, &PixelFormatIdx, &NumberOfFormats) || NumberOfFormats == 0) {
+    fprintf(stderr, "Could not choose pixel format.");
+    ReleaseDC(Window->WindowHandle, Window->DeviceContext);
+    Window->Error = true;
+    return Window;
+  }
+  fprintf(stdout, "Pixel format: %d.\n", PixelFormatIdx);
+
+  PIXELFORMATDESCRIPTOR PixelFormatDescriptor = {0};
+  if (!SetPixelFormat(Window->DeviceContext, PixelFormatIdx, &PixelFormatDescriptor)) {
+    fprintf(stderr, "Could not set pixel format.");
+    ReleaseDC(Window->WindowHandle, Window->DeviceContext);
+    Window->Error = true;
+    return Window;
+  }
+
+  INT ContextAttribs[] = {
+    WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+    WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+    WGL_CONTEXT_FLAGS_ARB,         WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
+    WGL_CONTEXT_PROFILE_MASK_ARB,  WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+    0
+  };
+  Window->OpenglContext = WglCreateContextAttribsARBProc(Window->DeviceContext, 0, ContextAttribs);
+  if (!Window->OpenglContext) {
+    fprintf(stderr, "Could not create opengl context.");
+    ReleaseDC(Window->WindowHandle, Window->DeviceContext);
+    Window->Error = true;
+    return Window;
+  }
+
+  Window->GlClearColor = cast(gl_clear_color_proc*, GetProcAddress(OpenglModule, "glClearColor"));
+  Window->GlClear      = cast(gl_clear_proc*,       GetProcAddress(OpenglModule, "glClear"));
+  if (!Window->GlClearColor || !Window->GlClear) {
+    fprintf(stderr, "Could not load opengl procedures.");
+    Window->Error = true;
+    return Window;
+  }
+
+  ShowWindow(Window->WindowHandle, SW_SHOW);
+
+  Window->WglMakeCurrent = WglMakeCurrentProc;
+
+  if (Window->Error == true)
+    ExitProcess(1);
+
+  return Window;
+}
+function void SysBeginRenderingWithOpengl(window *Window) {
+  Window->DeviceContext = GetDC(Window->WindowHandle);
+  Window->WglMakeCurrent(Window->DeviceContext, Window->OpenglContext);
+}
+function void SysEndRenderingWithOpengl(window *Window) {
+  SwapBuffers(Window->DeviceContext);
+  ReleaseDC(Window->WindowHandle, Window->DeviceContext);
 }
 
 #elif defined(OS_LNX)
