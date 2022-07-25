@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <string.h>
+
 /**************************************************************************************************
 
   FOUNDATION FOR (NON REALTIME) PROGRAMS
@@ -94,7 +97,6 @@ The contents of this file belong to the public domain.
 #define function static
 
 #define unused(a)  ((void)a)
-#define sizeof(a)  ((int) sizeof(a))
 #define countof(a) ((int)(sizeof(a) / sizeof(*(a))))
 #define cast(t, x) ((t)(x))
 //.note: These were written with a lowecase first letter because they were supposed to be more like actual C keywords.
@@ -416,7 +418,17 @@ function str8  ConvertStr16ToStr8(pool*, str16);
 
 ////////////////////////
 // DYNAMIC ARRAY
-Todo();
+#define ARRAY_INIT_CAP 16
+#define array(type) struct { size Cap, Len; type *Mem; }
+#define ArrayExp(Array) &(Array)->Cap, &(Array)->Len, sizeof(*(Array)->Mem), cast(void**, &(Array)->Mem) 
+#define ArrayAdd(Array, x) (         \
+  ((Array)->Cap < (Array)->Len + 1)? \
+    GrowArray(ArrayExp(Array)) : 0,  \
+  (Array)->Mem[(Array)->Len] = (x),  \
+  (Array)->Len++                     \
+)
+
+function b32 GrowArray(size*, size*, size, void**);
 
 ////////////////////////
 // HASH TABLE
@@ -495,17 +507,18 @@ typedef struct _window window;
 #define WINDOW_COMMON struct { \
   b32 Error;                   \
   b32 Quit;                    \
+  void *GfxApi;                \
 }
-function void SysGetInput(window*);
+function void SysGetWindowInput(window*);
 
 ////////////////////////
 // OPENGL
 typedef void gl_clear_color_proc(r32, r32, r32, r32);
 typedef void gl_clear_proc(u32);
-#define WINDOW_OPENGL_COMMON struct { \
-  gl_clear_color_proc *GlClearColor;  \
-  gl_clear_proc       *GlClear;       \
-}
+typedef struct _opengl_api {
+  gl_clear_color_proc *ClearColor;
+  gl_clear_proc       *Clear;
+} opengl_api;
 #define GL_COLOR_BUFFER_BIT 0x00004000
 
 function window *SysCreateWindowWithOpenGL(void);
@@ -785,7 +798,24 @@ function void EndPoolSnapshot(pool_snap Snap) {
 
 ////////////////////////
 // DYNAMIC ARRAY
-Todo();
+function int GrowArray(size *Cap, size *Len, size Itm, void **Mem) {
+  if ((*Mem) == 0) {
+    *Mem = SysMemReserve(Itm*ARRAY_INIT_CAP, 0);
+    if ((*Mem) == 0)
+      return false;
+  }
+  if ((*Len)+1 > (*Cap)) {
+    size  NewCap = ((*Cap) == 0)? 8 : (*Cap) * 2;
+    void *NewMem = SysMemReserve(NewCap*Itm, 0);
+    memcpy(NewMem, *Mem, (*Len)*Itm);
+    SysMemRelease(*Mem, (*Len)*Itm);
+    if (NewMem == 0)
+      return false;
+    *Mem = NewMem;
+    *Cap = NewCap;
+  }
+  return true;
+}
 
 ////////////////////////
 // HASH TABLE
@@ -1013,8 +1043,6 @@ function date_time DateTimeFromDense(dense_time Dense) {
 #include "windows.h"
 #include "timeapi.h"
 #define function static
-
-#include <stdio.h>
 
 global pool *GlobalWin32Pool;
 global str8 *GlobalWin32Argv;
@@ -1250,16 +1278,15 @@ typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
 
 struct _window {
   WINDOW_COMMON;
-  WINDOW_OPENGL_COMMON;
 
-  wgl_make_current_proc *WglMakeCurrent;
+  void *MainFiber;
+  void *MessageFiber;
 
   HWND  WindowHandle;
   HDC   DeviceContext;
   HGLRC OpenglContext;
 
-  void *MainFiber;
-  void *MessageFiber;
+  wgl_make_current_proc *WglMakeCurrent;
 };
 
 LRESULT CALLBACK WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
@@ -1296,7 +1323,7 @@ function void CALLBACK MessageFiberProc(void *MainFiber) {
   }
 }
 
-function void SysGetInput(window *Window) {
+function void SysGetWindowInput(window *Window) {
   SwitchToFiber(Window->MessageFiber);
 }
 function window *SysCreateWindowWithOpenGL(void) {
@@ -1424,7 +1451,6 @@ function window *SysCreateWindowWithOpenGL(void) {
     Window->Error = true;
     return Window;
   }
-  fprintf(stdout, "Pixel format: %d.\n", PixelFormatIdx);
 
   PIXELFORMATDESCRIPTOR PixelFormatDescriptor = {0};
   if (!SetPixelFormat(Window->DeviceContext, PixelFormatIdx, &PixelFormatDescriptor)) {
@@ -1449,17 +1475,19 @@ function window *SysCreateWindowWithOpenGL(void) {
     return Window;
   }
 
-  Window->GlClearColor = cast(gl_clear_color_proc*, GetProcAddress(OpenglModule, "glClearColor"));
-  Window->GlClear      = cast(gl_clear_proc*,       GetProcAddress(OpenglModule, "glClear"));
-  if (!Window->GlClearColor || !Window->GlClear) {
+  Window->WglMakeCurrent = WglMakeCurrentProc;
+
+  opengl_api *Api = PoolPush(GlobalWin32Pool, sizeof(opengl_api));
+  Api->ClearColor = cast(gl_clear_color_proc*, GetProcAddress(OpenglModule, "glClearColor"));
+  Api->Clear      = cast(gl_clear_proc*,       GetProcAddress(OpenglModule, "glClear"));
+  if (!Api->ClearColor || !Api->Clear) {
     fprintf(stderr, "Could not load opengl procedures.");
     Window->Error = true;
     return Window;
   }
+  Window->GfxApi = Api;
 
   ShowWindow(Window->WindowHandle, SW_SHOW);
-
-  Window->WglMakeCurrent = WglMakeCurrentProc;
 
   if (Window->Error == true)
     ExitProcess(1);
