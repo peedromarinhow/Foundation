@@ -1,3 +1,4 @@
+#define FOUNDATION_IMPLEMENTATION
 #include "foundation.h"
 
 int main(int Argc, char **Argv) {

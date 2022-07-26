@@ -3,11 +3,10 @@
 
 /**************************************************************************************************
 
-  FOUNDATION FOR (NON REALTIME) PROGRAMS
-The contents of this file belong to the public domain.
+  FOUNDATION FOR PROGRAMS
 
 .doc:
-	...
+  Todo().
 
 ***************************************************************************************************/
 
@@ -193,13 +192,14 @@ typedef unsigned int   c32;
 StaticAssert(sizeof(c8)  == 1);
 StaticAssert(sizeof(c16) == 2);
 StaticAssert(sizeof(c32) == 4);
+#define IsSpace(c) ((c) == ' ' || (c) == '\t' || (c) == '\r')
 #define IsSlash(c) ((c) == '\\' || (c) == '/')
 #define IsDigit(c) ((c) >= '0' && (c) <= '9')
 #define IsUpper(c) ((c) >= 'A' && (c) <= 'Z')
 #define IsLower(c) ((c) >= 'a' && (c) <= 'z')
+#define IsAlpha(c) (IsLower(c) || IsUpper(c))
 #define ToUpper(c) (IsLower(c)? (c) + 'A'-'a' : c)
 #define ToLower(c) (IsUpper(c)? (c) + 'a'-'A' : c)
-#define IsAlpha(c) (IsLower(c)  || IsUpper(c))
 
 typedef float  r32;
 typedef double r64;
@@ -357,8 +357,8 @@ inline r32   r32r2Mid(r32r2);
 // MEMORY
 enum _mem_flags {
   mem_Unaccessible = Flag(0),
-  mem_Readonly = Flag(1),
-  mem_Runnable = Flag(2),
+  mem_Readonly     = Flag(1),
+  mem_Runnable     = Flag(2),
 };
 
 typedef struct _pool {
@@ -498,28 +498,28 @@ function b32  SysRenameFile(str8, str8);
 function b32  SysCreateDir (str8);
 function b32  SysDeleteDir (str8);
 
-function b32 SysInit(i32, c8**);
+function b32  SysInit(i32, c8**);
 function void SysEnd(void);
 
 ////////////////////////
 // SYSTEM WINDOW
 typedef struct _window window;
-#define WINDOW_COMMON struct { \
-  array(c8*) Errors;           \
-  b32        Finish;           \
-  void      *GfxApi;           \
+#define WINDOW_COMMON struct _window_common { \
+  array(c8*) Errors;                          \
+  b32        Finish;                          \
+  void      *GfxApi;                          \
 }
 function void SysGetWindowInput(window*);
 
 ////////////////////////
 // OPENGL
+#define GL_COLOR_BUFFER_BIT 0x00004000
 typedef void gl_clear_color_proc(r32, r32, r32, r32);
 typedef void gl_clear_proc(u32);
 typedef struct _opengl_api {
   gl_clear_color_proc *ClearColor;
   gl_clear_proc       *Clear;
 } opengl_api;
-#define GL_COLOR_BUFFER_BIT 0x00004000
 
 function window *SysCreateWindowWithOpenGL(void);
 function void    SysBeginRenderingWithOpenGL(window*);
@@ -530,8 +530,7 @@ function void    SysEndRenderingWithOpenGL  (window*);
 /**************************************************************************************************
   PLTFORM INDEPENDENT IMPLEMENTATION
 ***************************************************************************************************/
-#if !defined(FOUNDATION_IMPLEMENTATION)
-#define FOUNDATION_IMPLEMENTATION
+#if defined(FOUNDATION_IMPLEMENTATION)
 
 ////////////////////////
 // MATH FUNCTIONS
@@ -1026,11 +1025,6 @@ function date_time DateTimeFromDense(dense_time Dense) {
   Res.Year = ((i32)(Dense) - 0x8000);
   return Res;
 }
-
-////////////////////////
-// SYSTEM INTERFACE
-
-#endif//FOUNDATION_IMPLEMENTATION
 
 /**************************************************************************************************
   PLATFORM DEPENDENT IMPLEMENTATIONS
@@ -1542,3 +1536,5 @@ Todo();
 Todo();
 
 #endif
+
+#endif//FOUNDATION_IMPLEMENTATION
