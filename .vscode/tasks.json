@@ -23,7 +23,7 @@
     {
       "label": "Run.",
       "type": "shell",
-      "command": "${workspaceFolder}/build/main.exe; echo Finished.",
+      "command": "${workspaceFolder}/build/main.exe",
       "problemMatcher": [
         "$gcc"
       ],

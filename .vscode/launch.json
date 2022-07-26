@@ -10,7 +10,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/build/main.exe",
       "args": [],
-      "stopAtEntry": false,
+      "stopAtEntry": true,
       "cwd": "${workspaceFolder}/build/",
       "environment": [],
       "console":"integratedTerminal",
