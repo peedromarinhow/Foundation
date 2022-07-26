@@ -504,10 +504,14 @@ function void SysEnd(void);
 ////////////////////////
 // SYSTEM WINDOW
 typedef struct _window window;
-#define WINDOW_COMMON struct _window_common { \
-  array(c8*) Errors;                          \
-  b32        Finish;                          \
-  void      *GfxApi;                          \
+#define WINDOW_NON_SPECIFIC struct _window_common { \
+  array(c8*) Errors;                                \
+  b32        Finish;                                \
+  void      *GfxApi;                                \
+  u64        FrameStart;                            \
+  r64        FrameDelta;                            \
+  r64        DesiredFps;                            \
+  b32        LostFrames;                            \
 }
 function void SysGetWindowInput(window*);
 
@@ -1199,7 +1203,149 @@ function void SysEnd() {
   PoolRelease(GlobalWin32Pool);
 }
 
-// GRAPHICS
+////////////////////////
+// SYSTEM WINDOW
+struct _window {
+  WINDOW_NON_SPECIFIC;
+
+  void *MainFiber;
+  void *MessageFiber;
+
+  HINSTANCE Instance;
+  HWND      WindowHandle;
+  HDC       DeviceContext;
+
+  WINDOWPLACEMENT WindowPosition;
+  MONITORINFO     MonitorInfo;
+
+  void *GfxCtx;
+};
+
+function LRESULT CALLBACK _Win32WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
+  LRESULT Result = 0;
+  window *Window = cast(window*, GetWindowLongPtr(WindowHandle, GWLP_USERDATA));
+  switch (Message) {
+    case WM_DESTROY:
+      Window->Finish = true;
+      break;
+    case WM_TIMER:
+      SwitchToFiber(Window->MainFiber);
+      break;
+    case WM_ENTERMENULOOP:
+    case WM_ENTERSIZEMOVE:
+      SetTimer(WindowHandle, 1, 1, 0);
+      break;
+    case WM_EXITMENULOOP:
+    case WM_EXITSIZEMOVE:
+      KillTimer(WindowHandle, 1);
+      break;
+    default:
+      Result = DefWindowProcW(WindowHandle, Message, wParam, lParam);
+  }
+  return Result;
+}
+function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
+  while (true) {
+    MSG Message;
+    while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
+      TranslateMessage(&Message);
+      DispatchMessage(&Message);
+    }
+    SwitchToFiber(MainFiber);
+  }
+}
+function window *_Win32CreateWindow(void) {
+  window *Window = PoolPush(GlobalWin32Pool, sizeof(window));
+  ZeroMemory(Window, sizeof(window));
+  Window->Instance     = GetModuleHandleW(null);
+  Window->MainFiber    = ConvertThreadToFiber(0);
+  Window->MessageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MessageFiberProc, Window->MainFiber);
+  if (!Window->MainFiber || !Window->MessageFiber)
+    ArrayAdd(&Window->Errors, "could not create fibers");
+
+  // Fullscreen support.
+  Window->WindowPosition.length = sizeof(Window->WindowPosition);
+  Window->MonitorInfo.cbSize    = sizeof(Window->MonitorInfo);
+
+  // Create actual class.
+  WNDCLASSW Class = {0};
+  if (!Window->Errors.Len) {
+    Class.lpfnWndProc   = _Win32WindowProc;
+    Class.hInstance     = Window->Instance;
+    Class.hCursor       = LoadCursor(0, IDC_ARROW);
+    Class.lpszClassName = L"actual class";
+  }
+  if (!RegisterClassW(&Class))
+    ArrayAdd(&Window->Errors, "could not create window class");
+
+  // Create actual window.
+  if (!Window->Errors.Len)
+    Window->WindowHandle = CreateWindowW(L"actual class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Window->Instance, 0);
+  if (!Window->WindowHandle)
+    ArrayAdd(&Window->Errors, "could not create window");
+  if (!Window->Errors.Len)
+    SetWindowLongPtr(Window->WindowHandle, GWLP_USERDATA, (LONG_PTR)Window);
+
+  // Get device context.
+  if (!Window->Errors.Len)
+    Window->DeviceContext = GetDC(Window->WindowHandle);
+  if (!Window->DeviceContext)
+    ArrayAdd(&Window->Errors, "could not create dummy device context for loading opengl");
+
+  return Window;
+}
+
+function void _Win32CheckWindowErrors(window *Window) {
+  if (Window->Errors.Len) {
+    fprintf(stderr, "There were %d errors during the creation of the window:\n", cast(int, Window->Errors.Len));
+    ItrNum (i, Window->Errors.Len)
+      fprintf(stderr, "  Error: %s.\n", Window->Errors.Mem[i]);
+    Window->Finish = true;
+  }
+}
+function void _Win32BeginFrame(window *Window) {
+  Window->FrameStart = SysGetMicroseconds();
+}
+function void _Win32EndFrame(window *Window) {
+  // Frame timing and frame-rate capping.
+  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
+  r32 TimeToSleep = (1.0f/Window->DesiredFps-Window->FrameDelta);
+  if (TimeToSleep > 0) 
+    Sleep(TimeToSleep*Thousand(1));
+  else
+    Window->LostFrames = true;
+}
+
+function void SysGetWindowInput(window *Window) {
+  SwitchToFiber(Window->MessageFiber);
+
+  // Fullscreen support.
+  //.copy: From https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353.
+  if (false) {
+    DWORD Style = GetWindowLong(Window->WindowHandle, GWL_STYLE);
+    if (Style & WS_OVERLAPPEDWINDOW && GetWindowPlacement(Window->WindowHandle, &Window->WindowPosition) && GetMonitorInfo(MonitorFromWindow(Window->WindowHandle, MONITOR_DEFAULTTOPRIMARY), &Window->MonitorInfo)) {
+      SetWindowLong(Window->WindowHandle, GWL_STYLE, Style & ~WS_OVERLAPPEDWINDOW);
+      SetWindowPos(
+        Window->WindowHandle, HWND_TOP,
+        Window->MonitorInfo.rcMonitor.left,    Window->MonitorInfo.rcMonitor.top,
+        Window->MonitorInfo.rcMonitor.right  - Window->MonitorInfo.rcMonitor.left,
+        Window->MonitorInfo.rcMonitor.bottom - Window->MonitorInfo.rcMonitor.top,
+        SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+      );
+    }
+    else {
+      SetWindowLong(Window->WindowHandle, GWL_STYLE, Style | WS_OVERLAPPEDWINDOW);
+      SetWindowPlacement(Window->WindowHandle, &Window->WindowPosition);
+      SetWindowPos(
+        Window->WindowHandle, null, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+      );
+    }
+  }
+}
+
+////////////////////////
+// OPENGL IMPLEMENTATION
 #define WGL_ARB_pixel_format 1
 #define WGL_NUMBER_PIXEL_FORMATS_ARB      0x2000
 #define WGL_DRAW_TO_WINDOW_ARB            0x2001
@@ -1270,89 +1416,38 @@ typedef PROC  wgl_get_proc_address_proc(LPCSTR);
 typedef BOOL  wgl_choose_pixel_format_arb_proc(HDC, const int*, const float*, UINT, int*, UINT*);
 typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
 
-struct _window {
-  WINDOW_COMMON;
+typedef struct _opengl_ctx {
+  HGLRC                  Hglrc;
+  wgl_make_current_proc *MakeCurrent;
+} opengl_ctx;
 
-  void *MainFiber;
-  void *MessageFiber;
-
-  HWND  WindowHandle;
-  HDC   DeviceContext;
-  HGLRC OpenglContext;
-
-  wgl_make_current_proc *WglMakeCurrent;
-};
-
-LRESULT CALLBACK WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
-  LRESULT Result = 0;
-  window *Window = cast(window*, GetWindowLongPtr(WindowHandle, GWLP_USERDATA));
-  switch (Message) {
-    case WM_DESTROY:
-      Window->Finish = true;
-      break;
-    case WM_TIMER:
-      SwitchToFiber(Window->MainFiber);
-      break;
-    case WM_ENTERMENULOOP:
-    case WM_ENTERSIZEMOVE:
-      SetTimer(WindowHandle, 1, 1, 0);
-      break;
-    case WM_EXITMENULOOP:
-    case WM_EXITSIZEMOVE:
-      KillTimer(WindowHandle, 1);
-      break;
-    default:
-      Result = DefWindowProcW(WindowHandle, Message, wParam, lParam);
-  }
-  return Result;
-}
-function void CALLBACK MessageFiberProc(void *MainFiber) {
-  while (true) {
-    MSG Message;
-    while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
-      TranslateMessage(&Message);
-      DispatchMessage(&Message);
-    }
-    SwitchToFiber(MainFiber);
-  }
-}
-
-function void SysGetWindowInput(window *Window) {
-  SwitchToFiber(Window->MessageFiber);
-}
 function window *SysCreateWindowWithOpenGL(void) {
-  HINSTANCE Instance = GetModuleHandleW(null);
-
-  window *Window = PoolPush(GlobalWin32Pool, sizeof(window));
-  ZeroMemory(Window, sizeof(window));
-  Window->MainFiber    = ConvertThreadToFiber(0);
-  Window->MessageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)MessageFiberProc, Window->MainFiber);
-  if (!Window->MainFiber || !Window->MessageFiber)
-    ArrayAdd(&Window->Errors, "could not create fibers");
+  // Create window.
+  window *Window = _Win32CreateWindow();
 
   // Create dummy window class.
   WNDCLASSW DummyClass = {0};
   if (!Window->Errors.Len) {
     DummyClass.lpfnWndProc   = DefWindowProcW;
-    DummyClass.hInstance     = Instance;
+    DummyClass.hInstance     = Window->Instance;
     DummyClass.lpszClassName = L"dummy class";
   }
   if (!RegisterClassW(&DummyClass))
-    ArrayAdd(&Window->Errors, "could not create dummy window class");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy window class");
 
   // Create dummy window.
   HWND DummyWindowHandle = null;
   if (!Window->Errors.Len)
-    DummyWindowHandle = CreateWindowW(L"dummy class", L"dummy title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Instance, 0);
+    DummyWindowHandle = CreateWindowW(L"dummy class", L"dummy title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Window->Instance, 0);
   if (!DummyWindowHandle)
-    ArrayAdd(&Window->Errors, "could not create dummy window for loading opengl");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy window for loading opengl");
 
   // Get dummy device context.
   HDC DummyDeviceContext = null;
   if (!Window->Errors.Len)
     DummyDeviceContext = GetDC(DummyWindowHandle);
   if (!DummyDeviceContext)
-    ArrayAdd(&Window->Errors, "could not create dummy device context for loading opengl");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy device context for loading opengl");
   
   // Create dummy pixel format descriptor.
   PIXELFORMATDESCRIPTOR DummyPixelFormatDescriptor = {0};
@@ -1365,10 +1460,10 @@ function window *SysCreateWindowWithOpenGL(void) {
   }
   INT DummyPixelFormatIdx = ChoosePixelFormat(DummyDeviceContext, &DummyPixelFormatDescriptor);
   if (!DummyPixelFormatIdx)
-    ArrayAdd(&Window->Errors, "could not choose dummy pixel format");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not choose dummy pixel format");
   if (!Window->Errors.Len) {
     if (!SetPixelFormat(DummyDeviceContext, DummyPixelFormatIdx, &DummyPixelFormatDescriptor))
-      ArrayAdd(&Window->Errors, "could not set dummy pixel format");
+      ArrayAdd(&Window->Errors, "(opengl startup) could not set dummy pixel format");
   }
 
   // Load opengl32.dll and opengl functions from it.
@@ -1376,7 +1471,7 @@ function window *SysCreateWindowWithOpenGL(void) {
   if (!Window->Errors.Len)
     OpenglModule = LoadLibraryA("opengl32.dll");
   if (OpenglModule == 0)
-    ArrayAdd(&Window->Errors, "could not load opengl module");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module");
   wgl_create_context_proc   *WglCreateContextProc  = null;
   wgl_delete_context_proc   *WglDeleteContextProc  = null;
   wgl_make_current_proc     *WglMakeCurrentProc    = null;
@@ -1388,20 +1483,20 @@ function window *SysCreateWindowWithOpenGL(void) {
     WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenglModule, "wglGetProcAddress"));
   }
   if (!WglCreateContextProc || !WglDeleteContextProc || !WglMakeCurrentProc || !WglGetProcAddressProc)
-    ArrayAdd(&Window->Errors, "could not load opengl module functions");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module functions");
 
   // Get dummy opengl context.
   HGLRC DummyOpenglContext = null;
   if (!Window->Errors.Len)
     DummyOpenglContext = WglCreateContextProc(DummyDeviceContext);
   if (!DummyOpenglContext)
-    ArrayAdd(&Window->Errors, "could not create dummy opengl context");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy opengl context");
   if (!Window->Errors.Len) {
     if (!WglMakeCurrentProc(DummyDeviceContext, DummyOpenglContext))
-      ArrayAdd(&Window->Errors, "'WglMakeCurrent' failed.");
+      ArrayAdd(&Window->Errors, "(opengl startup) calling 'WglMakeCurrent' for dummy context failed.");
   }
   
-  // Load opengl functions from opengl context.
+  // Load opengl functions from dummy context.
   wgl_choose_pixel_format_arb_proc    *WglChoosePixelFormatARBProc    = null;
   wgl_create_context_attribs_arb_proc *WglCreateContextAttribsARBProc = null;
   if (!Window->Errors.Len) {
@@ -1409,44 +1504,21 @@ function window *SysCreateWindowWithOpenGL(void) {
     WglCreateContextAttribsARBProc = cast(wgl_create_context_attribs_arb_proc*, WglGetProcAddressProc("wglCreateContextAttribsARB"));
   }
   if (!WglChoosePixelFormatARBProc || !WglCreateContextAttribsARBProc)
-    ArrayAdd(&Window->Errors, "could not load opengl functions");
+    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl functions");
 
   if (!Window->Errors.Len) {
     if (!WglMakeCurrentProc(null, null))
-      ArrayAdd(&Window->Errors, "'WglMakeCurrent' failed.");
+      ArrayAdd(&Window->Errors, "(opengl startup) cleanup call to 'WglMakeCurrent' failed.");
   }
 
   // Cleanup dummy stuff.
   ReleaseDC(DummyWindowHandle, DummyDeviceContext);
   if (!Window->Errors.Len) {
-    if (!WglDeleteContextProc(DummyOpenglContext) || !DestroyWindow(DummyWindowHandle))
-      ArrayAdd(&Window->Errors, "could not destroy dummy window");
+    if (!WglDeleteContextProc(DummyOpenglContext))
+      ArrayAdd(&Window->Errors, "(opengl startup) could not delete dummy opengl context");
+    if (!DestroyWindow(DummyWindowHandle))
+      ArrayAdd(&Window->Errors, "(opengl startup) could not destroy dummy window");
   }
-
-  // Create actual class.
-  WNDCLASSW Class = {0};
-  if (!Window->Errors.Len) {
-    Class.lpfnWndProc   = WindowProc;
-    Class.hInstance     = Instance;
-    Class.hCursor       = LoadCursor(0, IDC_ARROW);
-    Class.lpszClassName = L"actual class";
-  }
-  if (!RegisterClassW(&Class))
-    ArrayAdd(&Window->Errors, "could not create window class");
-
-  // Create actual window.
-  if (!Window->Errors.Len)
-    Window->WindowHandle = CreateWindowW(L"actual class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Instance, 0);
-  if (!Window->WindowHandle)
-    ArrayAdd(&Window->Errors, "could not create window");
-  if (!Window->Errors.Len)
-    SetWindowLongPtr(Window->WindowHandle, GWLP_USERDATA, (LONG_PTR)Window);
-
-  // Get device context.
-  if (!Window->Errors.Len)
-    Window->DeviceContext = GetDC(Window->WindowHandle);
-  if (!Window->DeviceContext)
-    ArrayAdd(&Window->Errors, "could not create dummy device context for loading opengl");
 
   // Create pixel format.
   INT FormatAttribs[] = {
@@ -1466,17 +1538,18 @@ function window *SysCreateWindowWithOpenGL(void) {
   UINT NumberOfFormats = 0;
   if (!Window->Errors.Len) {
     if(!WglChoosePixelFormatARBProc(Window->DeviceContext, FormatAttribs, null, 1, &PixelFormatIdx, &NumberOfFormats) || NumberOfFormats == 0)
-      ArrayAdd(&Window->Errors, "could not choose pixel format");
+      ArrayAdd(&Window->Errors, "(opengl startup) could not choose pixel format");
   }
 
   // Set pixel format.
   PIXELFORMATDESCRIPTOR PixelFormatDescriptor = {0};
   if (!Window->Errors.Len) {
     if (!SetPixelFormat(Window->DeviceContext, PixelFormatIdx, &PixelFormatDescriptor))
-      ArrayAdd(&Window->Errors, "could not set pixel format");
+      ArrayAdd(&Window->Errors, "(opengl startup) could not set pixel format");
   }
 
   // Create opengl context.
+  opengl_ctx *Ctx = PoolPush(GlobalWin32Pool, sizeof(opengl_ctx));
   INT ContextAttribs[] = {
     WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
     WGL_CONTEXT_MINOR_VERSION_ARB, 3,
@@ -1485,46 +1558,122 @@ function window *SysCreateWindowWithOpenGL(void) {
     0
   };
   if (!Window->Errors.Len)
-    Window->OpenglContext = WglCreateContextAttribsARBProc(Window->DeviceContext, 0, ContextAttribs);
-  if (!Window->OpenglContext)
-    ArrayAdd(&Window->Errors, "could not create opengl context");
+    Ctx->Hglrc = WglCreateContextAttribsARBProc(Window->DeviceContext, 0, ContextAttribs);
+  if (!Ctx->Hglrc)
+    ArrayAdd(&Window->Errors, "(opengl startup) could not create opengl context");
   if (!Window->Errors.Len)
-    Window->WglMakeCurrent = WglMakeCurrentProc;
+    Ctx->MakeCurrent = WglMakeCurrentProc;
 
   // Create opengl api.
   opengl_api *Api = PoolPush(GlobalWin32Pool, sizeof(opengl_api));
   Api->ClearColor = cast(gl_clear_color_proc*, GetProcAddress(OpenglModule, "glClearColor"));
   Api->Clear      = cast(gl_clear_proc*,       GetProcAddress(OpenglModule, "glClear"));
   if (!Api->ClearColor || !Api->Clear)
-    ArrayAdd(&Window->Errors, "could not load opengl procedures");
-  if (!Window->Errors.Len)
+    ArrayAdd(&Window->Errors, "(opengl startup) could not load extended opengl procedures");
+  if (!Window->Errors.Len) {
+    Window->GfxCtx = Ctx;
     Window->GfxApi = Api;
+  }
 
   // Show window.
   if (!Window->Errors.Len)
     ShowWindow(Window->WindowHandle, SW_SHOW);
 
   // If there were errors, print them all in order.
-  if (Window->Errors.Len) {
-    fprintf(stderr, "There were %d errors during startup:\n", cast(int, Window->Errors.Len));
-    ItrNum (i, Window->Errors.Len)
-      fprintf(stderr, "  Error: %s.\n", Window->Errors.Mem[i]);
-    Window->Finish = true;
-  }
+  _Win32CheckWindowErrors(Window);
 
   return Window;
 }
 function void SysBeginRenderingWithOpengl(window *Window) {
+  _Win32BeginFrame(Window);
   if (Window->Errors.Len)
     return;
+
   Window->DeviceContext = GetDC(Window->WindowHandle);
-  Window->WglMakeCurrent(Window->DeviceContext, Window->OpenglContext);
+
+  opengl_ctx *Wgl = cast(opengl_ctx*, Window->GfxCtx);
+  Wgl->MakeCurrent(Window->DeviceContext, Wgl->Hglrc);
 }
 function void SysEndRenderingWithOpengl(window *Window) {
   if (Window->Errors.Len)
     return;
   SwapBuffers(Window->DeviceContext);
   ReleaseDC(Window->WindowHandle, Window->DeviceContext);
+  _Win32EndFrame(Window);
+}
+
+////////////////////////
+// D3D11 IMPLEMENTATION
+typedef struct _d3d11_ctx {
+  int Temp;
+} d3d11_ctx;
+
+function window *SysCreateWindowWithD3d11(void) {
+  // Create window.
+  window *Window = _Win32CreateWindow();
+
+  Todo();
+
+  // Show window.
+  if (!Window->Errors.Len)
+    ShowWindow(Window->WindowHandle, SW_SHOW);
+
+  // If there were errors, print them all in order.
+  _Win32CheckWindowErrors(Window);
+
+  return Window;
+}
+function void SysBeginRenderingWithD3d11(window *Window) {
+  _Win32BeginFrame(Window);
+  if (Window->Errors.Len)
+    return;
+  
+  Todo();
+}
+function void SysEndRenderingWithD3d11(window *Window) {
+  if (Window->Errors.Len)
+    return;
+
+  Todo();
+
+  _Win32EndFrame(Window);
+}
+
+////////////////////////
+// Vulkan IMPLEMENTATION
+typedef struct _vulkan_ctx {
+  int Temp;
+} vulkan_ctx;
+
+function window *SysCreateWindowWithVulkan(void) {
+  // Create window.
+  window *Window = _Win32CreateWindow();
+
+  Todo(); // One can dream...
+
+  // Show window.
+  if (!Window->Errors.Len)
+    ShowWindow(Window->WindowHandle, SW_SHOW);
+
+  // If there were errors, print them all in order.
+  _Win32CheckWindowErrors(Window);
+
+  return Window;
+}
+function void SysBeginRenderingWithVulkan(window *Window) {
+  _Win32BeginFrame(Window);
+  if (Window->Errors.Len)
+    return;
+
+  Todo(); // One can dream...
+}
+function void SysEndRenderingWithVulkan(window *Window) {
+  if (Window->Errors.Len)
+    return;
+
+  Todo(); // One can dream...
+
+  _Win32EndFrame(Window);
 }
 
 #elif defined(OS_LNX)
