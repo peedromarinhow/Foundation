@@ -8,10 +8,10 @@ int main(int Argc, char **Argv) {
   r32 RedCycle = 0.f;
   while (!Window->Finish) {
     SysGetWindowInput(Window);
-
     SysBeginRenderingWithOpengl(Window);
     Gl->ClearColor(RedCycle = (RedCycle >= 0.9)? 0 : RedCycle+.05f, 0, 0, 1);
     Gl->Clear(GL_COLOR_BUFFER_BIT);
     SysEndRenderingWithOpengl(Window);
   }
+  SysDestroyWindowWithOpenGL(Window);
 }

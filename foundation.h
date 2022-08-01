@@ -98,7 +98,7 @@
 #define unused(a)  ((void)a)
 #define countof(a) ((int)(sizeof(a) / sizeof(*(a))))
 #define cast(t, x) ((t)(x))
-//.note: These were written with a lowecase first letter because they were supposed to be more like actual C keywords.
+//.note: These were written with a lowecase first letter because they were supposed to be more like C keywords.
 
 #define _Glue(x, y) x##y
 #define Glue(x, y) _Glue(x, y)
@@ -503,15 +503,35 @@ function void SysEnd(void);
 
 ////////////////////////
 // SYSTEM WINDOW
+#define WINDOW_BUTTON_COUNT 256
+enum _buttons {
+  button_Up,
+  button_Down,
+  button_Left,
+  button_Right,
+  button_Crtl,
+  button_Alt,
+  button_Shift,
+  button_Esc,
+  button_Count,
+};
+typedef struct _button {
+  b8 Down     : 1;
+  b8 Pressed  : 1;
+  b8 Released : 1;
+} button;
+inline function void UpdateButton(button*, b32);
+
 typedef struct _window window;
-#define WINDOW_NON_SPECIFIC struct _window_common { \
-  array(c8*) Errors;                                \
-  b32        Finish;                                \
-  void      *GfxApi;                                \
-  u64        FrameStart;                            \
-  r64        FrameDelta;                            \
-  r64        DesiredFps;                            \
-  b32        LostFrames;                            \
+#define WINDOW_COMMON struct _window_common { \
+  array(c8*) Errors;                          \
+  b32        Finish;                          \
+  void      *GfxApi;                          \
+  button     Buttons[WINDOW_BUTTON_COUNT];    \
+  u64        FrameStart;                      \
+  r64        FrameDelta;                      \
+  r64        DesiredFps;                      \
+  b32        LostFrames;                      \
 }
 function void SysGetWindowInput(window*);
 
@@ -525,9 +545,25 @@ typedef struct _opengl_api {
   gl_clear_proc       *Clear;
 } opengl_api;
 
-function window *SysCreateWindowWithOpenGL(void);
+function window *SysCreateWindowWithOpenGL  (void);
 function void    SysBeginRenderingWithOpenGL(window*);
 function void    SysEndRenderingWithOpenGL  (window*);
+function void    SysDestroyWindowWithOpenGL (window*);
+
+////////////////////////
+// D3D11
+function window *SysCreateWindowWithD3d11  (void);
+function void    SysBeginRenderingWithD3d11(window*);
+function void    SysEndRenderingWithD3d11  (window*);
+function void    SysDestroyWindowWithD3d11 (window*);
+
+////////////////////////
+// VULKAN
+function window *SysCreateWindowWithVulkan  (void);
+function void    SysBeginRenderingWithVulkan(window*);
+function void    SysEndRenderingWithVulkan  (window*);
+function void    SysDestroyWindowWithVulkan (window*);
+
 
 #endif//FOUNDATION_HEADER
 
@@ -1030,6 +1066,14 @@ function date_time DateTimeFromDense(dense_time Dense) {
   return Res;
 }
 
+////////////////////////
+// SYSTEM WINDOW
+inline function void UpdateButton(button *Button, b32 IsDown) {
+  Button->Released =  Button->Down && !IsDown;
+  Button->Pressed  = !Button->Down &&  IsDown;
+  Button->Down     =  IsDown;
+}
+
 /**************************************************************************************************
   PLATFORM DEPENDENT IMPLEMENTATIONS
 ***************************************************************************************************/
@@ -1206,7 +1250,7 @@ function void SysEnd() {
 ////////////////////////
 // SYSTEM WINDOW
 struct _window {
-  WINDOW_NON_SPECIFIC;
+  WINDOW_COMMON;
 
   void *MainFiber;
   void *MessageFiber;
@@ -1267,20 +1311,20 @@ function window *_Win32CreateWindow(void) {
   Window->WindowPosition.length = sizeof(Window->WindowPosition);
   Window->MonitorInfo.cbSize    = sizeof(Window->MonitorInfo);
 
-  // Create actual class.
+  // Create window class.
   WNDCLASSW Class = {0};
   if (!Window->Errors.Len) {
     Class.lpfnWndProc   = _Win32WindowProc;
     Class.hInstance     = Window->Instance;
     Class.hCursor       = LoadCursor(0, IDC_ARROW);
-    Class.lpszClassName = L"actual class";
+    Class.lpszClassName = L"class";
   }
   if (!RegisterClassW(&Class))
     ArrayAdd(&Window->Errors, "could not create window class");
 
-  // Create actual window.
+  // Create window.
   if (!Window->Errors.Len)
-    Window->WindowHandle = CreateWindowW(L"actual class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Window->Instance, 0);
+    Window->WindowHandle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Window->Instance, 0);
   if (!Window->WindowHandle)
     ArrayAdd(&Window->Errors, "could not create window");
   if (!Window->Errors.Len)
@@ -1315,13 +1359,22 @@ function void _Win32EndFrame(window *Window) {
   else
     Window->LostFrames = true;
 }
+function void *_Win32DestroyWindow(window *Window) {
+  Todo();
+}
 
 function void SysGetWindowInput(window *Window) {
   SwitchToFiber(Window->MessageFiber);
 
+  // Update kyboard.
+  BYTE KeyboardState[WINDOW_BUTTON_COUNT];
+  GetKeyboardState(KeyboardState);
+  ItrNum (Key, WINDOW_BUTTON_COUNT)
+    UpdateButton(&Window->Buttons[Key], KeyboardState[Key] >> 7);
+
   // Fullscreen support.
   //.copy: From https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353.
-  if (false) {
+  if (Window->Buttons[VK_F11].Pressed) {
     DWORD Style = GetWindowLong(Window->WindowHandle, GWL_STYLE);
     if (Style & WS_OVERLAPPEDWINDOW && GetWindowPlacement(Window->WindowHandle, &Window->WindowPosition) && GetMonitorInfo(MonitorFromWindow(Window->WindowHandle, MONITOR_DEFAULTTOPRIMARY), &Window->MonitorInfo)) {
       SetWindowLong(Window->WindowHandle, GWL_STYLE, Style & ~WS_OVERLAPPEDWINDOW);
@@ -1347,83 +1400,103 @@ function void SysGetWindowInput(window *Window) {
 ////////////////////////
 // OPENGL IMPLEMENTATION
 #define WGL_ARB_pixel_format 1
-#define WGL_NUMBER_PIXEL_FORMATS_ARB      0x2000
-#define WGL_DRAW_TO_WINDOW_ARB            0x2001
-#define WGL_DRAW_TO_BITMAP_ARB            0x2002
-#define WGL_ACCELERATION_ARB              0x2003
-#define WGL_NEED_PALETTE_ARB              0x2004
-#define WGL_NEED_SYSTEM_PALETTE_ARB       0x2005
-#define WGL_SWAP_LAYER_BUFFERS_ARB        0x2006
-#define WGL_SWAP_METHOD_ARB               0x2007
-#define WGL_NUMBER_OVERLAYS_ARB           0x2008
-#define WGL_NUMBER_UNDERLAYS_ARB          0x2009
-#define WGL_TRANSPARENT_ARB               0x200A
-#define WGL_TRANSPARENT_RED_VALUE_ARB     0x2037
-#define WGL_TRANSPARENT_GREEN_VALUE_ARB   0x2038
-#define WGL_TRANSPARENT_BLUE_VALUE_ARB    0x2039
-#define WGL_TRANSPARENT_ALPHA_VALUE_ARB   0x203A
-#define WGL_TRANSPARENT_INDEX_VALUE_ARB   0x203B
-#define WGL_SHARE_DEPTH_ARB               0x200C
-#define WGL_SHARE_STENCIL_ARB             0x200D
-#define WGL_SHARE_ACCUM_ARB               0x200E
-#define WGL_SUPPORT_GDI_ARB               0x200F
-#define WGL_SUPPORT_OPENGL_ARB            0x2010
-#define WGL_DOUBLE_BUFFER_ARB             0x2011
-#define WGL_STEREO_ARB                    0x2012
-#define WGL_PIXEL_TYPE_ARB                0x2013
-#define WGL_COLOR_BITS_ARB                0x2014
-#define WGL_RED_BITS_ARB                  0x2015
-#define WGL_RED_SHIFT_ARB                 0x2016
-#define WGL_GREEN_BITS_ARB                0x2017
-#define WGL_GREEN_SHIFT_ARB               0x2018
-#define WGL_BLUE_BITS_ARB                 0x2019
-#define WGL_BLUE_SHIFT_ARB                0x201A
-#define WGL_ALPHA_BITS_ARB                0x201B
-#define WGL_ALPHA_SHIFT_ARB               0x201C
-#define WGL_ACCUM_BITS_ARB                0x201D
-#define WGL_ACCUM_RED_BITS_ARB            0x201E
-#define WGL_ACCUM_GREEN_BITS_ARB          0x201F
-#define WGL_ACCUM_BLUE_BITS_ARB           0x2020
-#define WGL_ACCUM_ALPHA_BITS_ARB          0x2021
-#define WGL_DEPTH_BITS_ARB                0x2022
-#define WGL_STENCIL_BITS_ARB              0x2023
-#define WGL_AUX_BUFFERS_ARB               0x2024
-#define WGL_NO_ACCELERATION_ARB           0x2025
-#define WGL_GENERIC_ACCELERATION_ARB      0x2026
-#define WGL_FULL_ACCELERATION_ARB         0x2027
-#define WGL_SWAP_EXCHANGE_ARB             0x2028
-#define WGL_SWAP_COPY_ARB                 0x2029
-#define WGL_SWAP_UNDEFINED_ARB            0x202A
-#define WGL_TYPE_RGBA_ARB                 0x202B
-#define WGL_TYPE_COLORINDEX_ARB           0x202C
+#define WGL_NUMBER_PIXEL_FORMATS_ARB    0x2000
+#define WGL_DRAW_TO_WINDOW_ARB          0x2001
+#define WGL_DRAW_TO_BITMAP_ARB          0x2002
+#define WGL_ACCELERATION_ARB            0x2003
+#define WGL_NEED_PALETTE_ARB            0x2004
+#define WGL_NEED_SYSTEM_PALETTE_ARB     0x2005
+#define WGL_SWAP_LAYER_BUFFERS_ARB      0x2006
+#define WGL_SWAP_METHOD_ARB             0x2007
+#define WGL_NUMBER_OVERLAYS_ARB         0x2008
+#define WGL_NUMBER_UNDERLAYS_ARB        0x2009
+#define WGL_TRANSPARENT_ARB             0x200A
+#define WGL_TRANSPARENT_RED_VALUE_ARB   0x2037
+#define WGL_TRANSPARENT_GREEN_VALUE_ARB 0x2038
+#define WGL_TRANSPARENT_BLUE_VALUE_ARB  0x2039
+#define WGL_TRANSPARENT_ALPHA_VALUE_ARB 0x203A
+#define WGL_TRANSPARENT_INDEX_VALUE_ARB 0x203B
+#define WGL_SHARE_DEPTH_ARB             0x200C
+#define WGL_SHARE_STENCIL_ARB           0x200D
+#define WGL_SHARE_ACCUM_ARB             0x200E
+#define WGL_SUPPORT_GDI_ARB             0x200F
+#define WGL_SUPPORT_OPENGL_ARB          0x2010
+#define WGL_DOUBLE_BUFFER_ARB           0x2011
+#define WGL_STEREO_ARB                  0x2012
+#define WGL_PIXEL_TYPE_ARB              0x2013
+#define WGL_COLOR_BITS_ARB              0x2014
+#define WGL_RED_BITS_ARB                0x2015
+#define WGL_RED_SHIFT_ARB               0x2016
+#define WGL_GREEN_BITS_ARB              0x2017
+#define WGL_GREEN_SHIFT_ARB             0x2018
+#define WGL_BLUE_BITS_ARB               0x2019
+#define WGL_BLUE_SHIFT_ARB              0x201A
+#define WGL_ALPHA_BITS_ARB              0x201B
+#define WGL_ALPHA_SHIFT_ARB             0x201C
+#define WGL_ACCUM_BITS_ARB              0x201D
+#define WGL_ACCUM_RED_BITS_ARB          0x201E
+#define WGL_ACCUM_GREEN_BITS_ARB        0x201F
+#define WGL_ACCUM_BLUE_BITS_ARB         0x2020
+#define WGL_ACCUM_ALPHA_BITS_ARB        0x2021
+#define WGL_DEPTH_BITS_ARB              0x2022
+#define WGL_STENCIL_BITS_ARB            0x2023
+#define WGL_AUX_BUFFERS_ARB             0x2024
+#define WGL_NO_ACCELERATION_ARB         0x2025
+#define WGL_GENERIC_ACCELERATION_ARB    0x2026
+#define WGL_FULL_ACCELERATION_ARB       0x2027
+#define WGL_SWAP_EXCHANGE_ARB           0x2028
+#define WGL_SWAP_COPY_ARB               0x2029
+#define WGL_SWAP_UNDEFINED_ARB          0x202A
+#define WGL_TYPE_RGBA_ARB               0x202B
+#define WGL_TYPE_COLORINDEX_ARB         0x202C
 
-#define WGL_CONTEXT_DEBUG_BIT_ARB         0x00000001
+#define WGL_CONTEXT_DEBUG_BIT_ARB              0x00000001
 #define WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB 0x00000002
-#define WGL_CONTEXT_MAJOR_VERSION_ARB     0x2091
-#define WGL_CONTEXT_MINOR_VERSION_ARB     0x2092
-#define WGL_CONTEXT_LAYER_PLANE_ARB       0x2093
-#define WGL_CONTEXT_FLAGS_ARB             0x2094
+#define WGL_CONTEXT_MAJOR_VERSION_ARB          0x2091
+#define WGL_CONTEXT_MINOR_VERSION_ARB          0x2092
+#define WGL_CONTEXT_LAYER_PLANE_ARB            0x2093
+#define WGL_CONTEXT_FLAGS_ARB                  0x2094
 
-#define WGL_CONTEXT_PROFILE_MASK_ARB      0x9126
-#define WGL_CONTEXT_CORE_PROFILE_BIT_ARB  0x00000001
+#define WGL_CONTEXT_PROFILE_MASK_ARB              0x9126
+#define WGL_CONTEXT_CORE_PROFILE_BIT_ARB          0x00000001
 #define WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB 0x00000002
 
-typedef HGLRC wgl_create_context_proc(HDC);
-typedef BOOL  wgl_delete_context_proc(HGLRC);
-typedef BOOL  wgl_make_current_proc(HDC, HGLRC);
-typedef PROC  wgl_get_proc_address_proc(LPCSTR);
+typedef HGLRC wgl_create_context_proc   (HDC);
+typedef BOOL  wgl_delete_context_proc   (HGLRC);
+typedef BOOL  wgl_make_current_proc     (HDC, HGLRC);
+typedef PROC  wgl_get_proc_address_proc (LPCSTR);
 
-typedef BOOL  wgl_choose_pixel_format_arb_proc(HDC, const int*, const float*, UINT, int*, UINT*);
-typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
+typedef BOOL  wgl_choose_pixel_format_arb_proc    (HDC, const int*, const float*, UINT, int*, UINT*);
+typedef HGLRC wgl_create_context_attribs_arb_proc (HDC, HGLRC, const int*);
 
 typedef struct _opengl_ctx {
-  HGLRC                  Hglrc;
-  wgl_make_current_proc *MakeCurrent;
+  HGLRC                    Hglrc;
+  wgl_make_current_proc   *MakeCurrent;
+  wgl_delete_context_proc *DeleteContext;
 } opengl_ctx;
 
 function window *SysCreateWindowWithOpenGL(void) {
   // Create window.
   window *Window = _Win32CreateWindow();
+
+  // Load opengl32.dll and opengl functions from it.
+  HMODULE OpenglModule = null;
+  if (!Window->Errors.Len)
+    OpenglModule = LoadLibraryA("opengl32.dll");
+  if (OpenglModule == 0)
+    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module");
+  wgl_create_context_proc   *WglCreateContextProc  = null;
+  wgl_delete_context_proc   *WglDeleteContextProc  = null;
+  wgl_make_current_proc     *WglMakeCurrentProc    = null;
+  wgl_get_proc_address_proc *WglGetProcAddressProc = null;
+  if (!Window->Errors.Len) {
+    WglCreateContextProc  = cast(wgl_create_context_proc*,   GetProcAddress(OpenglModule, "wglCreateContext"));
+    WglDeleteContextProc  = cast(wgl_delete_context_proc*,   GetProcAddress(OpenglModule, "wglDeleteContext"));
+    WglMakeCurrentProc    = cast(wgl_make_current_proc*,     GetProcAddress(OpenglModule, "wglMakeCurrent"));
+    WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenglModule, "wglGetProcAddress"));
+  }
+  if (!WglCreateContextProc || !WglDeleteContextProc || !WglMakeCurrentProc || !WglGetProcAddressProc)
+    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module functions");
 
   // Create dummy window class.
   WNDCLASSW DummyClass = {0};
@@ -1465,25 +1538,6 @@ function window *SysCreateWindowWithOpenGL(void) {
     if (!SetPixelFormat(DummyDeviceContext, DummyPixelFormatIdx, &DummyPixelFormatDescriptor))
       ArrayAdd(&Window->Errors, "(opengl startup) could not set dummy pixel format");
   }
-
-  // Load opengl32.dll and opengl functions from it.
-  HMODULE OpenglModule = null;
-  if (!Window->Errors.Len)
-    OpenglModule = LoadLibraryA("opengl32.dll");
-  if (OpenglModule == 0)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module");
-  wgl_create_context_proc   *WglCreateContextProc  = null;
-  wgl_delete_context_proc   *WglDeleteContextProc  = null;
-  wgl_make_current_proc     *WglMakeCurrentProc    = null;
-  wgl_get_proc_address_proc *WglGetProcAddressProc = null;
-  if (!Window->Errors.Len) {
-    WglCreateContextProc  = cast(wgl_create_context_proc*,   GetProcAddress(OpenglModule, "wglCreateContext"));
-    WglDeleteContextProc  = cast(wgl_delete_context_proc*,   GetProcAddress(OpenglModule, "wglDeleteContext"));
-    WglMakeCurrentProc    = cast(wgl_make_current_proc*,     GetProcAddress(OpenglModule, "wglMakeCurrent"));
-    WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenglModule, "wglGetProcAddress"));
-  }
-  if (!WglCreateContextProc || !WglDeleteContextProc || !WglMakeCurrentProc || !WglGetProcAddressProc)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module functions");
 
   // Get dummy opengl context.
   HGLRC DummyOpenglContext = null;
@@ -1561,8 +1615,10 @@ function window *SysCreateWindowWithOpenGL(void) {
     Ctx->Hglrc = WglCreateContextAttribsARBProc(Window->DeviceContext, 0, ContextAttribs);
   if (!Ctx->Hglrc)
     ArrayAdd(&Window->Errors, "(opengl startup) could not create opengl context");
-  if (!Window->Errors.Len)
-    Ctx->MakeCurrent = WglMakeCurrentProc;
+  if (!Window->Errors.Len) {
+    Ctx->MakeCurrent   = WglMakeCurrentProc;
+    Ctx->DeleteContext = WglDeleteContextProc;
+  }
 
   // Create opengl api.
   opengl_api *Api = PoolPush(GlobalWin32Pool, sizeof(opengl_api));
@@ -1584,7 +1640,7 @@ function window *SysCreateWindowWithOpenGL(void) {
 
   return Window;
 }
-function void SysBeginRenderingWithOpengl(window *Window) {
+function void SysBeginRenderingWithOpenGL(window *Window) {
   _Win32BeginFrame(Window);
   if (Window->Errors.Len)
     return;
@@ -1594,7 +1650,7 @@ function void SysBeginRenderingWithOpengl(window *Window) {
   opengl_ctx *Wgl = cast(opengl_ctx*, Window->GfxCtx);
   Wgl->MakeCurrent(Window->DeviceContext, Wgl->Hglrc);
 }
-function void SysEndRenderingWithOpengl(window *Window) {
+function void SysEndRenderingWithOpenGL(window *Window) {
   if (Window->Errors.Len)
     return;
   SwapBuffers(Window->DeviceContext);
@@ -1602,8 +1658,17 @@ function void SysEndRenderingWithOpengl(window *Window) {
   _Win32EndFrame(Window);
 }
 
+function void SysDestroyWindowWithOpenGL(window *Window) {
+  _Win32DestroyWindow(Window);
+  
+  opengl_ctx *Wgl = cast(opengl_ctx*, Window->GfxCtx);
+  Wgl->DeleteContext(Wgl->Hglrc);
+}
+
 ////////////////////////
 // D3D11 IMPLEMENTATION
+#include "d3d11.h"
+
 typedef struct _d3d11_ctx {
   int Temp;
 } d3d11_ctx;
@@ -1611,6 +1676,17 @@ typedef struct _d3d11_ctx {
 function window *SysCreateWindowWithD3d11(void) {
   // Create window.
   window *Window = _Win32CreateWindow();
+
+  // Load d3d11.dll and d3d11 functions from it.
+  HMODULE D3d11Module = null;
+  if (!Window->Errors.Len)
+    D3d11Module = LoadLibraryA("d3d11.dll");
+  if (D3d11Module == 0)
+    ArrayAdd(&Window->Errors, "(d3d11 startup) could not load d3d11 module");
+  if (!Window->Errors.Len) {
+  }
+  if (false)
+    ArrayAdd(&Window->Errors, "(d3d11 startup) could not load d3d11 module functions");
 
   Todo();
 
@@ -1637,6 +1713,12 @@ function void SysEndRenderingWithD3d11(window *Window) {
   Todo();
 
   _Win32EndFrame(Window);
+}
+
+function void SysDestroyWindowWithD3d11(window *Window) {
+  _Win32DestroyWindow(Window);
+  
+  Todo();
 }
 
 ////////////////////////
@@ -1674,6 +1756,12 @@ function void SysEndRenderingWithVulkan(window *Window) {
   Todo(); // One can dream...
 
   _Win32EndFrame(Window);
+}
+
+function void SysDestroyWindowWithVulkan(window *Window) {
+  _Win32DestroyWindow(Window);
+  
+  Todo();
 }
 
 #elif defined(OS_LNX)
