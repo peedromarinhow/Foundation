@@ -419,16 +419,22 @@ function str8  ConvertStr16ToStr8(pool*, str16);
 ////////////////////////
 // DYNAMIC ARRAY
 #define ARRAY_INIT_CAP 16
+
 #define array(type) struct { size Cap, Len; type *Mem; }
-#define ArrayExp(Array) &(Array)->Cap, &(Array)->Len, sizeof(*(Array)->Mem), cast(void**, &(Array)->Mem) 
-#define ArrayAdd(Array, x) (         \
+
+function b32 _ArrayMake(size*, size*, size, void**, size);
+function b32 _ArrayGrow(size*, size*, size, void**);
+
+#define _ArrayExp(Array) &(Array)->Cap, &(Array)->Len, sizeof(*(Array)->Mem), cast(void**, &(Array)->Mem) 
+#define  ArrayMake(Array, Len) _ArrayMake(_ArrayExp(Array), (Len))
+#define  ArrayAdd(Array, x) (       \
   ((Array)->Cap < (Array)->Len + 1)? \
-    GrowArray(ArrayExp(Array)) : 0,  \
+    _ArrayGrow(_ArrayExp(Array))     \
+  :                                  \
+    0,                               \
   (Array)->Mem[(Array)->Len] = (x),  \
   (Array)->Len++                     \
 )
-
-function b32 GrowArray(size*, size*, size, void**);
 
 ////////////////////////
 // HASH TABLE
@@ -842,19 +848,28 @@ function void EndPoolSnapshot(pool_snap Snap) {
 }
 
 ////////////////////////
-// DYNAMIC ARRAY
-function int GrowArray(size *Cap, size *Len, size Itm, void **Mem) {
-  if ((*Mem) == 0) {
+// DYNAMIC ARRAYARRAY
+function b32 _ArrayMake(size *Cap, size *Len, size Itm, void **Mem, size InitCap) {
+  *Mem = SysMemReserve(Itm*InitCap, 0);
+  *Cap = InitCap;
+  *Len = 0;
+  if (*Mem == null)
+    return false;
+  return true;
+}
+function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem) {
+  if ((*Mem) == null) {
     *Mem = SysMemReserve(Itm*ARRAY_INIT_CAP, 0);
-    if ((*Mem) == 0)
+    if ((*Mem) == null)
       return false;
   }
-  if ((*Len)+1 > (*Cap)) {
+  else {
     size  NewCap = ((*Cap) == 0)? 8 : (*Cap) * 2;
     void *NewMem = SysMemReserve(NewCap*Itm, 0);
-    memcpy(NewMem, *Mem, (*Len)*Itm);
+    if (NewMem != null)
+      memcpy(NewMem, *Mem, (*Len)*Itm);
     SysMemRelease(*Mem, (*Len)*Itm);
-    if (NewMem == 0)
+    if (NewMem == null)
       return false;
     *Mem = NewMem;
     *Cap = NewCap;
@@ -1663,6 +1678,9 @@ function window *WndInit(gfx_api_kind GfxApiKind) {
   return Window;
 }
 function void WndEnd(window *Window) {
+  if (Window->Errors.Len)
+    return;
+
   if (Window->GfxApiKind == gfx_api_Opengl)
     _Win32EndWindowWithOpenGL(Window);
   else
