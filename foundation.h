@@ -484,6 +484,9 @@ typedef struct _file_properties {
 
 ////////////////////////
 // SYSTEM INTERFACE
+function b32  SysInit(i32, c8**);
+function void SysEnd(void);
+
 function byte *SysMemReserve(size, u32);
 function void  SysMemRelease(byte*, size);
 
@@ -498,11 +501,30 @@ function b32  SysRenameFile(str8, str8);
 function b32  SysCreateDir (str8);
 function b32  SysDeleteDir (str8);
 
-function b32  SysInit(i32, c8**);
-function void SysEnd(void);
+////////////////////////
+// OPENGL
+#define GL_COLOR_BUFFER_BIT 0x00004000
+typedef void gl_clear_color_proc(r32, r32, r32, r32);
+typedef void gl_clear_proc(u32);
+typedef struct _opengl_api {
+  gl_clear_color_proc *ClearColor;
+  gl_clear_proc       *Clear;
+} opengl_api;
 
 ////////////////////////
-// SYSTEM WINDOW
+// D3D11
+typedef struct _d3d11_api {
+  int Tmp;
+} d3d11_api;
+
+////////////////////////
+// VULKAN
+typedef struct _vulkan_api {
+  int Tmp;
+} vulkan_api;
+
+////////////////////////
+// WINDOW INTERFACE
 #define WINDOW_BUTTON_COUNT 256
 enum _buttons {
   button_Up,
@@ -522,47 +544,31 @@ typedef struct _button {
 } button;
 inline function void UpdateButton(button*, b32);
 
-typedef struct _window window;
-#define WINDOW_COMMON struct _window_common { \
-  array(c8*) Errors;                          \
-  b32        Finish;                          \
-  void      *GfxApi;                          \
-  button     Buttons[WINDOW_BUTTON_COUNT];    \
-  u64        FrameStart;                      \
-  r64        FrameDelta;                      \
-  r64        DesiredFps;                      \
-  b32        LostFrames;                      \
-}
-function void SysGetWindowInput(window*);
+typedef struct _sys_specific_window sys_specific_window;
+typedef enum _gfx_api_kind {
+  gfx_api_Opengl,
+  gfx_api_D3d11,
+  gfx_api_Vulkan,
+} gfx_api_kind;
+typedef struct _window {
+  sys_specific_window *SysWnd;
+  array(c8*)           Errors;
+  b32                  Finish;
+  void                *GfxApi;
+  gfx_api_kind GfxApiKind;
+  u64          FrameStart;
+  r64          FrameDelta;
+  r64          DesiredFps;
+  b32          LostFrames;
+  button       Buttons[WINDOW_BUTTON_COUNT];
+} window;
 
-////////////////////////
-// OPENGL
-#define GL_COLOR_BUFFER_BIT 0x00004000
-typedef void gl_clear_color_proc(r32, r32, r32, r32);
-typedef void gl_clear_proc(u32);
-typedef struct _opengl_api {
-  gl_clear_color_proc *ClearColor;
-  gl_clear_proc       *Clear;
-} opengl_api;
+function window *WndInit(gfx_api_kind);
+function void    WndEnd(window*);
 
-function window *SysCreateWindowWithOpenGL  (void);
-function void    SysBeginRenderingWithOpenGL(window*);
-function void    SysEndRenderingWithOpenGL  (window*);
-function void    SysDestroyWindowWithOpenGL (window*);
-
-////////////////////////
-// D3D11
-function window *SysCreateWindowWithD3d11  (void);
-function void    SysBeginRenderingWithD3d11(window*);
-function void    SysEndRenderingWithD3d11  (window*);
-function void    SysDestroyWindowWithD3d11 (window*);
-
-////////////////////////
-// VULKAN
-function window *SysCreateWindowWithVulkan  (void);
-function void    SysBeginRenderingWithVulkan(window*);
-function void    SysEndRenderingWithVulkan  (window*);
-function void    SysDestroyWindowWithVulkan (window*);
+function void WndGetInput(window*);
+function void WndBeginRendering(window*);
+function void WndEndRendering(window*);
 
 
 #endif//FOUNDATION_HEADER
@@ -1090,8 +1096,39 @@ global pool *GlobalWin32Pool;
 global str8 *GlobalWin32Argv;
 global i32   GlobalWin32Argc;
 global u64   GlobalWin32TicksPerSecond;
-global u64   GlobalWin32TicksPerSecond;
 global u64   GlobalWin32TicksUponStart;
+
+////////////////////////
+// SETUP
+function b32 SysInit(i32 Argc, c8 **Argv) {
+  pool *Pool = PoolReserve(0);
+
+  LARGE_INTEGER PerfFrequency = {0};
+  if (!QueryPerformanceFrequency(&PerfFrequency)) {
+    fprintf(stderr, "Could not retrieve performance frequency.");
+    return false;
+  }
+  timeBeginPeriod(1);
+  LARGE_INTEGER PerfCounter = {0};
+  if (!QueryPerformanceCounter(&PerfCounter)) {
+    fprintf(stderr, "Could not retrieve performance counter.");
+    return false;
+  }
+  
+  GlobalWin32Argc           = Argc;
+  GlobalWin32Argv           = cast(str8*, PoolPush(Pool, Argc*sizeof(str8)));
+  ItrNum (i, Argc)
+    GlobalWin32Argv[i]      = Str8Cstr(Argv[i]);
+  GlobalWin32TicksPerSecond = PerfFrequency.QuadPart;
+  GlobalWin32TicksUponStart = PerfCounter.QuadPart;
+  GlobalWin32Pool           = Pool;
+
+  return true;
+}
+
+function void SysEnd() {
+  PoolRelease(GlobalWin32Pool);
+}
 
 ////////////////////////
 // MEMORY
@@ -1216,42 +1253,8 @@ function b32 SysDeleteDir(str8 Path) {
 }
 
 ////////////////////////
-// SETUP
-function b32 SysInit(i32 Argc, c8 **Argv) {
-  pool *Pool = PoolReserve(0);
-
-  LARGE_INTEGER PerfFrequency = {0};
-  if (!QueryPerformanceFrequency(&PerfFrequency)) {
-    fprintf(stderr, "Could not retrieve performance frequency.");
-    return false;
-  }
-  timeBeginPeriod(1);
-  LARGE_INTEGER PerfCounter = {0};
-  if (!QueryPerformanceCounter(&PerfCounter)) {
-    fprintf(stderr, "Could not retrieve performance counter.");
-    return false;
-  }
-  
-  GlobalWin32Argc           = Argc;
-  GlobalWin32Argv           = cast(str8*, PoolPush(Pool, Argc*sizeof(str8)));
-  ItrNum (i, Argc)
-    GlobalWin32Argv[i]      = Str8Cstr(cast(u8*, Argv[i]));
-  GlobalWin32TicksPerSecond = PerfFrequency.QuadPart;
-  GlobalWin32TicksUponStart = PerfCounter.QuadPart;
-  GlobalWin32Pool           = Pool;
-
-  return true;
-}
-
-function void SysEnd() {
-  PoolRelease(GlobalWin32Pool);
-}
-
-////////////////////////
 // SYSTEM WINDOW
-struct _window {
-  WINDOW_COMMON;
-
+struct _sys_specific_window {
   void *MainFiber;
   void *MessageFiber;
 
@@ -1265,140 +1268,8 @@ struct _window {
   void *GfxCtx;
 };
 
-function LRESULT CALLBACK _Win32WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
-  LRESULT Result = 0;
-  window *Window = cast(window*, GetWindowLongPtr(WindowHandle, GWLP_USERDATA));
-  switch (Message) {
-    case WM_DESTROY:
-      Window->Finish = true;
-      break;
-    case WM_TIMER:
-      SwitchToFiber(Window->MainFiber);
-      break;
-    case WM_ENTERMENULOOP:
-    case WM_ENTERSIZEMOVE:
-      SetTimer(WindowHandle, 1, 1, 0);
-      break;
-    case WM_EXITMENULOOP:
-    case WM_EXITSIZEMOVE:
-      KillTimer(WindowHandle, 1);
-      break;
-    default:
-      Result = DefWindowProcW(WindowHandle, Message, wParam, lParam);
-  }
-  return Result;
-}
-function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
-  while (true) {
-    MSG Message;
-    while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
-      TranslateMessage(&Message);
-      DispatchMessage(&Message);
-    }
-    SwitchToFiber(MainFiber);
-  }
-}
-function window *_Win32CreateWindow(void) {
-  window *Window = PoolPush(GlobalWin32Pool, sizeof(window));
-  ZeroMemory(Window, sizeof(window));
-  Window->Instance     = GetModuleHandleW(null);
-  Window->MainFiber    = ConvertThreadToFiber(0);
-  Window->MessageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MessageFiberProc, Window->MainFiber);
-  if (!Window->MainFiber || !Window->MessageFiber)
-    ArrayAdd(&Window->Errors, "could not create fibers");
-
-  // Fullscreen support.
-  Window->WindowPosition.length = sizeof(Window->WindowPosition);
-  Window->MonitorInfo.cbSize    = sizeof(Window->MonitorInfo);
-
-  // Create window class.
-  WNDCLASSW Class = {0};
-  if (!Window->Errors.Len) {
-    Class.lpfnWndProc   = _Win32WindowProc;
-    Class.hInstance     = Window->Instance;
-    Class.hCursor       = LoadCursor(0, IDC_ARROW);
-    Class.lpszClassName = L"class";
-  }
-  if (!RegisterClassW(&Class))
-    ArrayAdd(&Window->Errors, "could not create window class");
-
-  // Create window.
-  if (!Window->Errors.Len)
-    Window->WindowHandle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Window->Instance, 0);
-  if (!Window->WindowHandle)
-    ArrayAdd(&Window->Errors, "could not create window");
-  if (!Window->Errors.Len)
-    SetWindowLongPtr(Window->WindowHandle, GWLP_USERDATA, (LONG_PTR)Window);
-
-  // Get device context.
-  if (!Window->Errors.Len)
-    Window->DeviceContext = GetDC(Window->WindowHandle);
-  if (!Window->DeviceContext)
-    ArrayAdd(&Window->Errors, "could not create dummy device context for loading opengl");
-
-  return Window;
-}
-
-function void _Win32CheckWindowErrors(window *Window) {
-  if (Window->Errors.Len) {
-    fprintf(stderr, "There were %d errors during the creation of the window:\n", cast(int, Window->Errors.Len));
-    ItrNum (i, Window->Errors.Len)
-      fprintf(stderr, "  Error: %s.\n", Window->Errors.Mem[i]);
-    Window->Finish = true;
-  }
-}
-function void _Win32BeginFrame(window *Window) {
-  Window->FrameStart = SysGetMicroseconds();
-}
-function void _Win32EndFrame(window *Window) {
-  // Frame timing and frame-rate capping.
-  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
-  r32 TimeToSleep = (1.0f/Window->DesiredFps-Window->FrameDelta);
-  if (TimeToSleep > 0) 
-    Sleep(TimeToSleep*Thousand(1));
-  else
-    Window->LostFrames = true;
-}
-function void *_Win32DestroyWindow(window *Window) {
-  Todo();
-}
-
-function void SysGetWindowInput(window *Window) {
-  SwitchToFiber(Window->MessageFiber);
-
-  // Update kyboard.
-  BYTE KeyboardState[WINDOW_BUTTON_COUNT];
-  GetKeyboardState(KeyboardState);
-  ItrNum (Key, WINDOW_BUTTON_COUNT)
-    UpdateButton(&Window->Buttons[Key], KeyboardState[Key] >> 7);
-
-  // Fullscreen support.
-  //.copy: From https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353.
-  if (Window->Buttons[VK_F11].Pressed) {
-    DWORD Style = GetWindowLong(Window->WindowHandle, GWL_STYLE);
-    if (Style & WS_OVERLAPPEDWINDOW && GetWindowPlacement(Window->WindowHandle, &Window->WindowPosition) && GetMonitorInfo(MonitorFromWindow(Window->WindowHandle, MONITOR_DEFAULTTOPRIMARY), &Window->MonitorInfo)) {
-      SetWindowLong(Window->WindowHandle, GWL_STYLE, Style & ~WS_OVERLAPPEDWINDOW);
-      SetWindowPos(
-        Window->WindowHandle, HWND_TOP,
-        Window->MonitorInfo.rcMonitor.left,    Window->MonitorInfo.rcMonitor.top,
-        Window->MonitorInfo.rcMonitor.right  - Window->MonitorInfo.rcMonitor.left,
-        Window->MonitorInfo.rcMonitor.bottom - Window->MonitorInfo.rcMonitor.top,
-        SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-      );
-    }
-    else {
-      SetWindowLong(Window->WindowHandle, GWL_STYLE, Style | WS_OVERLAPPEDWINDOW);
-      SetWindowPlacement(Window->WindowHandle, &Window->WindowPosition);
-      SetWindowPos(
-        Window->WindowHandle, null, 0, 0, 0, 0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-      );
-    }
-  }
-}
-
 ////////////////////////
-// OPENGL IMPLEMENTATION
+// OPENGL
 #define WGL_ARB_pixel_format 1
 #define WGL_NUMBER_PIXEL_FORMATS_ARB    0x2000
 #define WGL_DRAW_TO_WINDOW_ARB          0x2001
@@ -1461,13 +1332,13 @@ function void SysGetWindowInput(window *Window) {
 #define WGL_CONTEXT_CORE_PROFILE_BIT_ARB          0x00000001
 #define WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB 0x00000002
 
-typedef HGLRC wgl_create_context_proc   (HDC);
-typedef BOOL  wgl_delete_context_proc   (HGLRC);
-typedef BOOL  wgl_make_current_proc     (HDC, HGLRC);
-typedef PROC  wgl_get_proc_address_proc (LPCSTR);
+typedef HGLRC wgl_create_context_proc  (HDC);
+typedef BOOL  wgl_delete_context_proc  (HGLRC);
+typedef BOOL  wgl_make_current_proc    (HDC, HGLRC);
+typedef PROC  wgl_get_proc_address_proc(LPCSTR);
 
-typedef BOOL  wgl_choose_pixel_format_arb_proc    (HDC, const int*, const float*, UINT, int*, UINT*);
-typedef HGLRC wgl_create_context_attribs_arb_proc (HDC, HGLRC, const int*);
+typedef BOOL  wgl_choose_pixel_format_arb_proc   (HDC, const int*, const float*, UINT, int*, UINT*);
+typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
 
 typedef struct _opengl_ctx {
   HGLRC                    Hglrc;
@@ -1475,9 +1346,8 @@ typedef struct _opengl_ctx {
   wgl_delete_context_proc *DeleteContext;
 } opengl_ctx;
 
-function window *SysCreateWindowWithOpenGL(void) {
-  // Create window.
-  window *Window = _Win32CreateWindow();
+function void _Win32EquipWindowWithOpenGL(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
 
   // Load opengl32.dll and opengl functions from it.
   HMODULE OpenglModule = null;
@@ -1502,7 +1372,7 @@ function window *SysCreateWindowWithOpenGL(void) {
   WNDCLASSW DummyClass = {0};
   if (!Window->Errors.Len) {
     DummyClass.lpfnWndProc   = DefWindowProcW;
-    DummyClass.hInstance     = Window->Instance;
+    DummyClass.hInstance     = SysWnd->Instance;
     DummyClass.lpszClassName = L"dummy class";
   }
   if (!RegisterClassW(&DummyClass))
@@ -1511,7 +1381,7 @@ function window *SysCreateWindowWithOpenGL(void) {
   // Create dummy window.
   HWND DummyWindowHandle = null;
   if (!Window->Errors.Len)
-    DummyWindowHandle = CreateWindowW(L"dummy class", L"dummy title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Window->Instance, 0);
+    DummyWindowHandle = CreateWindowW(L"dummy class", L"dummy title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, SysWnd->Instance, 0);
   if (!DummyWindowHandle)
     ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy window for loading opengl");
 
@@ -1591,14 +1461,14 @@ function window *SysCreateWindowWithOpenGL(void) {
   INT  PixelFormatIdx  = 0;
   UINT NumberOfFormats = 0;
   if (!Window->Errors.Len) {
-    if(!WglChoosePixelFormatARBProc(Window->DeviceContext, FormatAttribs, null, 1, &PixelFormatIdx, &NumberOfFormats) || NumberOfFormats == 0)
+    if(!WglChoosePixelFormatARBProc(SysWnd->DeviceContext, FormatAttribs, null, 1, &PixelFormatIdx, &NumberOfFormats) || NumberOfFormats == 0)
       ArrayAdd(&Window->Errors, "(opengl startup) could not choose pixel format");
   }
 
   // Set pixel format.
   PIXELFORMATDESCRIPTOR PixelFormatDescriptor = {0};
   if (!Window->Errors.Len) {
-    if (!SetPixelFormat(Window->DeviceContext, PixelFormatIdx, &PixelFormatDescriptor))
+    if (!SetPixelFormat(SysWnd->DeviceContext, PixelFormatIdx, &PixelFormatDescriptor))
       ArrayAdd(&Window->Errors, "(opengl startup) could not set pixel format");
   }
 
@@ -1612,7 +1482,7 @@ function window *SysCreateWindowWithOpenGL(void) {
     0
   };
   if (!Window->Errors.Len)
-    Ctx->Hglrc = WglCreateContextAttribsARBProc(Window->DeviceContext, 0, ContextAttribs);
+    Ctx->Hglrc = WglCreateContextAttribsARBProc(SysWnd->DeviceContext, 0, ContextAttribs);
   if (!Ctx->Hglrc)
     ArrayAdd(&Window->Errors, "(opengl startup) could not create opengl context");
   if (!Window->Errors.Len) {
@@ -1627,141 +1497,254 @@ function window *SysCreateWindowWithOpenGL(void) {
   if (!Api->ClearColor || !Api->Clear)
     ArrayAdd(&Window->Errors, "(opengl startup) could not load extended opengl procedures");
   if (!Window->Errors.Len) {
-    Window->GfxCtx = Ctx;
+    SysWnd->GfxCtx = Ctx;
     Window->GfxApi = Api;
   }
 
   // Show window.
   if (!Window->Errors.Len)
-    ShowWindow(Window->WindowHandle, SW_SHOW);
-
-  // If there were errors, print them all in order.
-  _Win32CheckWindowErrors(Window);
-
-  return Window;
+    ShowWindow(SysWnd->WindowHandle, SW_SHOW);
 }
-function void SysBeginRenderingWithOpenGL(window *Window) {
-  _Win32BeginFrame(Window);
-  if (Window->Errors.Len)
-    return;
-
-  Window->DeviceContext = GetDC(Window->WindowHandle);
-
-  opengl_ctx *Wgl = cast(opengl_ctx*, Window->GfxCtx);
-  Wgl->MakeCurrent(Window->DeviceContext, Wgl->Hglrc);
-}
-function void SysEndRenderingWithOpenGL(window *Window) {
-  if (Window->Errors.Len)
-    return;
-  SwapBuffers(Window->DeviceContext);
-  ReleaseDC(Window->WindowHandle, Window->DeviceContext);
-  _Win32EndFrame(Window);
-}
-
-function void SysDestroyWindowWithOpenGL(window *Window) {
-  _Win32DestroyWindow(Window);
-  
-  opengl_ctx *Wgl = cast(opengl_ctx*, Window->GfxCtx);
+function void _Win32EndWindowWithOpenGL(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
+  opengl_ctx *Wgl = cast(opengl_ctx*, SysWnd->GfxCtx);
   Wgl->DeleteContext(Wgl->Hglrc);
 }
 
-////////////////////////
-// D3D11 IMPLEMENTATION
-#include "d3d11.h"
+function void _Win32BeginRenderingWithOpenGL(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
+  SysWnd->DeviceContext = GetDC(SysWnd->WindowHandle);
+  opengl_ctx *Wgl = cast(opengl_ctx*, SysWnd->GfxCtx);
+  Wgl->MakeCurrent(SysWnd->DeviceContext, Wgl->Hglrc);
+}
+function void _Win32EndRenderingWithOpenGL(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
+  SwapBuffers(SysWnd->DeviceContext);
+  ReleaseDC(SysWnd->WindowHandle, SysWnd->DeviceContext);
+}
 
+////////////////////////
+// D3D11
 typedef struct _d3d11_ctx {
   int Temp;
 } d3d11_ctx;
 
-function window *SysCreateWindowWithD3d11(void) {
-  // Create window.
-  window *Window = _Win32CreateWindow();
-
-  // Load d3d11.dll and d3d11 functions from it.
-  HMODULE D3d11Module = null;
-  if (!Window->Errors.Len)
-    D3d11Module = LoadLibraryA("d3d11.dll");
-  if (D3d11Module == 0)
-    ArrayAdd(&Window->Errors, "(d3d11 startup) could not load d3d11 module");
-  if (!Window->Errors.Len) {
-  }
-  if (false)
-    ArrayAdd(&Window->Errors, "(d3d11 startup) could not load d3d11 module functions");
-
-  Todo();
-
-  // Show window.
-  if (!Window->Errors.Len)
-    ShowWindow(Window->WindowHandle, SW_SHOW);
-
-  // If there were errors, print them all in order.
-  _Win32CheckWindowErrors(Window);
-
-  return Window;
-}
-function void SysBeginRenderingWithD3d11(window *Window) {
-  _Win32BeginFrame(Window);
-  if (Window->Errors.Len)
-    return;
-  
+function void _Win32EquipWindowWithD3d11(window *Window) {
   Todo();
 }
-function void SysEndRenderingWithD3d11(window *Window) {
-  if (Window->Errors.Len)
-    return;
-
+function void _Win32EndWindowWithD3d11(window *Window) {
   Todo();
-
-  _Win32EndFrame(Window);
 }
 
-function void SysDestroyWindowWithD3d11(window *Window) {
-  _Win32DestroyWindow(Window);
-  
+function void _Win32BeginRenderingWithD3d11(window *Window) {
+  Todo();
+}
+function void _Win32EndRenderingWithD3d11(window *Window) {
   Todo();
 }
 
 ////////////////////////
-// Vulkan IMPLEMENTATION
+// VULKAN
 typedef struct _vulkan_ctx {
   int Temp;
 } vulkan_ctx;
 
-function window *SysCreateWindowWithVulkan(void) {
+function void _Win32EquipWindowWithVulkan(window *Window) {
+  Todo();
+}
+function void _Win32EndWindowWithVulkan(window *Window) {
+  Todo();
+}
+
+function void _Win32BeginRenderingWithVulkan(window *Window) {
+  Todo();
+}
+function void _Win32EndRenderingWithVulkan(window *Window) {
+  Todo();
+}
+
+
+////////////////////////
+// WRAPPING
+function LRESULT CALLBACK _Win32WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
+  LRESULT Result = 0;
+  window *Window = cast(window*, GetWindowLongPtr(WindowHandle, GWLP_USERDATA));
+  switch (Message) {
+    case WM_DESTROY:
+      Window->Finish = true;
+      break;
+    case WM_TIMER:
+      SwitchToFiber(Window->SysWnd->MainFiber);
+      break;
+    case WM_ENTERMENULOOP:
+    case WM_ENTERSIZEMOVE:
+      SetTimer(WindowHandle, 1, 1, 0);
+      break;
+    case WM_EXITMENULOOP:
+    case WM_EXITSIZEMOVE:
+      KillTimer(WindowHandle, 1);
+      break;
+    default:
+      Result = DefWindowProcW(WindowHandle, Message, wParam, lParam);
+  }
+  return Result;
+}
+function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
+  while (true) {
+    MSG Message;
+    while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
+      TranslateMessage(&Message);
+      DispatchMessage(&Message);
+    }
+    SwitchToFiber(MainFiber);
+  }
+}
+
+function window *WndInit(gfx_api_kind GfxApiKind) {
+  window              *Window = PoolPush(GlobalWin32Pool, sizeof(window));
+  sys_specific_window *SysWnd = PoolPush(GlobalWin32Pool, sizeof(sys_specific_window));
+  ZeroMemory(Window, sizeof(window));
+  ZeroMemory(SysWnd, sizeof(sys_specific_window));
+  
+  Window->SysWnd     = SysWnd;
+  Window->GfxApiKind = GfxApiKind;
+
+  SysWnd->Instance     = GetModuleHandleW(null);
+  SysWnd->MainFiber    = ConvertThreadToFiber(0);
+  SysWnd->MessageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MessageFiberProc, SysWnd->MainFiber);
+  if (!SysWnd->MainFiber || !SysWnd->MessageFiber)
+    ArrayAdd(&Window->Errors, "could not create fibers");
+
+  // Fullscreen support.
+  SysWnd->WindowPosition.length = sizeof(SysWnd->WindowPosition);
+  SysWnd->MonitorInfo.cbSize    = sizeof(SysWnd->MonitorInfo);
+
+  // Create window class.
+  WNDCLASSW Class = {0};
+  if (!Window->Errors.Len) {
+    Class.lpfnWndProc   = _Win32WindowProc;
+    Class.hInstance     = SysWnd->Instance;
+    Class.hCursor       = LoadCursor(0, IDC_ARROW);
+    Class.lpszClassName = L"class";
+  }
+  if (!RegisterClassW(&Class))
+    ArrayAdd(&Window->Errors, "could not create window class");
+
   // Create window.
-  window *Window = _Win32CreateWindow();
-
-  Todo(); // One can dream...
-
-  // Show window.
   if (!Window->Errors.Len)
-    ShowWindow(Window->WindowHandle, SW_SHOW);
+    SysWnd->WindowHandle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, SysWnd->Instance, 0);
+  if (!SysWnd->WindowHandle)
+    ArrayAdd(&Window->Errors, "could not create window");
+  if (!Window->Errors.Len)
+    SetWindowLongPtr(SysWnd->WindowHandle, GWLP_USERDATA, (LONG_PTR)Window);
 
-  // If there were errors, print them all in order.
-  _Win32CheckWindowErrors(Window);
+  // Get device context.
+  if (!Window->Errors.Len)
+    SysWnd->DeviceContext = GetDC(SysWnd->WindowHandle);
+  if (!SysWnd->DeviceContext)
+    ArrayAdd(&Window->Errors, "could not create dummy device context for loading opengl");
+
+  if (Window->GfxApiKind == gfx_api_Opengl)
+    _Win32EquipWindowWithOpenGL(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_D3d11)
+    _Win32EquipWindowWithD3d11(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_Vulkan)
+    _Win32EquipWindowWithVulkan(Window);
+
+  if (Window->Errors.Len) {
+    fprintf(stderr, "There were %d errors during the creation of the window:\n", cast(int, Window->Errors.Len));
+    ItrNum (i, Window->Errors.Len)
+      fprintf(stderr, "  Error: %s.\n", Window->Errors.Mem[i]);
+    Window->Finish = true;
+  }
 
   return Window;
 }
-function void SysBeginRenderingWithVulkan(window *Window) {
-  _Win32BeginFrame(Window);
+function void WndEnd(window *Window) {
+  if (Window->GfxApiKind == gfx_api_Opengl)
+    _Win32EndWindowWithOpenGL(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_D3d11)
+    _Win32EndWindowWithD3d11(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_Vulkan)
+    _Win32EndWindowWithVulkan(Window);
+}
+
+function void WndGetInput(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
+
+  SwitchToFiber(SysWnd->MessageFiber);
+
+  // Update kyboard.
+  BYTE KeyboardState[WINDOW_BUTTON_COUNT];
+  GetKeyboardState(KeyboardState);
+  ItrNum (Key, WINDOW_BUTTON_COUNT)
+    UpdateButton(&Window->Buttons[Key], KeyboardState[Key] >> 7);
+
+  // Fullscreen support.
+  //.copy: From https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353.
+  if (Window->Buttons[VK_F11].Pressed) {
+    DWORD Style = GetWindowLong(SysWnd->WindowHandle, GWL_STYLE);
+    if (Style & WS_OVERLAPPEDWINDOW && GetWindowPlacement(SysWnd->WindowHandle, &SysWnd->WindowPosition) && GetMonitorInfo(MonitorFromWindow(SysWnd->WindowHandle, MONITOR_DEFAULTTOPRIMARY), &SysWnd->MonitorInfo)) {
+      SetWindowLong(SysWnd->WindowHandle, GWL_STYLE, Style & ~WS_OVERLAPPEDWINDOW);
+      SetWindowPos(
+        SysWnd->WindowHandle, HWND_TOP,
+        SysWnd->MonitorInfo.rcMonitor.left,    SysWnd->MonitorInfo.rcMonitor.top,
+        SysWnd->MonitorInfo.rcMonitor.right  - SysWnd->MonitorInfo.rcMonitor.left,
+        SysWnd->MonitorInfo.rcMonitor.bottom - SysWnd->MonitorInfo.rcMonitor.top,
+        SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+      );
+    }
+    else {
+      SetWindowLong(SysWnd->WindowHandle, GWL_STYLE, Style | WS_OVERLAPPEDWINDOW);
+      SetWindowPlacement(SysWnd->WindowHandle, &SysWnd->WindowPosition);
+      SetWindowPos(
+        SysWnd->WindowHandle, null, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+      );
+    }
+  }
+}
+function void WndBeginRendering(window *Window) {
   if (Window->Errors.Len)
     return;
 
-  Todo(); // One can dream...
-}
-function void SysEndRenderingWithVulkan(window *Window) {
+  Window->FrameStart = SysGetMicroseconds();
   if (Window->Errors.Len)
     return;
 
-  Todo(); // One can dream...
-
-  _Win32EndFrame(Window);
+  if (Window->GfxApiKind == gfx_api_Opengl)
+    _Win32BeginRenderingWithOpenGL(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_D3d11)
+    _Win32BeginRenderingWithD3d11(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_Vulkan)
+    _Win32BeginRenderingWithVulkan(Window);
 }
+function void WndEndRendering(window *Window) {
+  if (Window->Errors.Len)
+    return;
 
-function void SysDestroyWindowWithVulkan(window *Window) {
-  _Win32DestroyWindow(Window);
-  
-  Todo();
+  if (Window->GfxApiKind == gfx_api_Opengl)
+    _Win32EndRenderingWithOpenGL(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_D3d11)
+    _Win32EndRenderingWithD3d11(Window);
+  else
+  if (Window->GfxApiKind == gfx_api_Vulkan)
+    _Win32EndRenderingWithVulkan(Window);
+
+  // Frame timing and frame-rate capping.
+  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
+  r32 TimeToSleep = (1.0f/Window->DesiredFps - Window->FrameDelta);
+  if (TimeToSleep > 0) 
+    Sleep(TimeToSleep*Thousand(1));
+  else
+    Window->LostFrames = true;
 }
 
 #elif defined(OS_LNX)
