@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -151,6 +152,24 @@
 #define ItrNum(i, n)    for (size (i) = 0; (i) < (n); (i) += 1)
 #define ItrPtr(i, s, e) for (size (i) = 0; (s) < (e); (i) += 1, (s)++)
 
+#define V2AddComps(v1, v2) (v1).x + (v1).x, (v1).y + (v2).y
+#define V2SubComps(v1, v2) (v1).x - (v1).x, (v1).y - (v2).y
+
+#define R1AddComps(r1, r2) Todo()
+#define R1SubComps(r1, r2) Todo()
+
+#define R1Overlap(r1, r2) ((r1).Min < (r2).Max && (r2).Min < (r1).Max)
+#define R2Overlap(r1, r2) ((r1.x0 < r2.x1 && r2.x0 < r1.x1) && (r1.y0 < r2.y1 && r2.y0 < r1.y1))
+
+#define R1Contains(r, x) ((r).Min <= (x) && (x) < (r).Max)
+#define R2Contains(r, v) ((r.x0 <= v.x && v.x < r.x1) && (r.y0 <= v.x && v.x < r.y1))
+
+#define R1Len(r) ((r).Max - (r).Min)
+#define R2LenComps(r) r.x1 - r.x0, r.y1 - r.y0
+
+#define R1Mid(r) (((r).Min + (r).Max)/2)
+#define R2MidComps(r) r.x0 + (r.x1 - r.x0)/2, r.y0 + (r.y1 - r.y0)/2
+
 ////////////////////////
 // BASIC TYPES
 typedef unsigned long long size;
@@ -282,76 +301,92 @@ typedef union _r32r2 {
 
 ////////////////////////
 // MATH FUNCTIONS
-function r32 r32Trunc(r32);
-function r32 r32Floor(r32);
-function r32 r32Ceil(r32);
+function r32 R32Trunc(r32 x);
+function r64 R64Trunc(r64 x);
 
-function r32 r32Abs(r32);
-function r64 r64Abs(r64);
+function r32 R32Floor(r32 x);
+function r64 R64Floor(r64 x);
 
-function r32 r32Sign(r32);
-function r64 r64Sign(r64);
+function r32 R32Ceil(r32 x);
+function r64 R64Ceil(r64 x);
 
-function r32 r32Sqrt(r32);
-function r64 r64Sqrt(r64);
+function r32 R32Abs(r32 x);
+function r64 R64Abs(r64 x);
 
-function r32 r32Log(r32);
-function r64 r64Log(r64);
+function r32 R32Sign(r32 x);
+function r64 R64Sign(r64 x);
 
-function r32 r32Sin(r32);
-function r64 r64Sin(r64);
+function r32 R32Sqrt(r32 x);
+function r64 R64Sqrt(r64 x);
 
-function r32 r32Cos(r32);
-function r64 r64Cos(r64);
+function r32 R32Log(r32 x);
+function r64 R64Log(r64 x);
 
-function r32 r32Tan(r32);
-function r64 r64Tan(r64);
+function r32 R32Sin(r32 x);
+function r64 R64Sin(r64 x);
 
-function r32 r32Atan(r32);
-function r64 r64Atan(r64);
+function r32 R32Cos(r32 x);
+function r64 R64Cos(r64 x);
 
-function r32 r32Pow(r32, r32);
-function r64 r64Pow(r64, r64);
+function r32 R32Tan(r32 x);
+function r64 R64Tan(r64 x);
 
-inline i32v2 I32v2(i32, i32);
-inline i32v2 i32v2Add(i32v2, i32v2);
-inline i32v2 i32v2Sub(i32v2, i32v2);
+function r32 R32Atan(r32 x);
+function r64 R64Atan(r64 x);
 
-inline r32v2 R32v2(r32, r32);
-inline r32v2 r32v2Add(r32v2, r32v2);
-inline r32v2 r32v2Sub(r32v2, r32v2);
+function r32 R32Pow(r32 x, r32 p);
+function r64 R64Pow(r64 x, r64 p);
 
-inline u64r1 U64r1(u64, u64);
-inline u64r1 u64r1Add(u64r1, u64r1);
-inline u64r1 u64r1Sub(u64r1, u64r1);
-inline b32   u64r1Overlaps(u64r1, u64r1);
-inline b32   u64r1Contains(u64r1, u64);
-inline u64   u64r1Len(u64r1);
-inline u64   u64r1Mid(u64r1);
+inline i32v2 I32v2(i32 x, i32 y);
+inline r32v2 R32v2(r32 x, r32 y);
 
-inline r32r1 R32r1(r32, r32);
-inline r32r1 r32r1Add(r32r2, r32r2);
-inline r32r1 r32r1Sub(r32r2, r32r2);
-inline b32   r32r1Overlaps(r32r2, r32r2);
-inline b32   r32r1Contains(r32r2, r32);
-inline r32   r32r1Len(r32r2);
-inline r32   r32r1Mid(r32r2);
+inline i32v2 I32v2Add(i32v2 v1, i32v2 v2);
+inline r32v2 R32v2Add(r32v2 v1, r32v2 v2);
 
-inline i32r2 I32r2(i32v2, i32v2);
-inline i32r2 i32r2Add(i32r2, i32r2);
-inline i32r2 i32r2Sub(i32r2, i32r2);
-inline b32   i32r2Overlaps(i32r2, i32r2);
-inline b32   i32r2Contains(i32r2, i32);
-inline i32   i32r2Len(i32r2);
-inline i32   i32r2Mid(i32r2);
+inline i32v2 I32v2Sub(i32v2 v1, i32v2 v2);
+inline r32v2 R32v2Sub(r32v2 v1, r32v2 v2);
 
-inline r32r2 R32r2Add(r32v2, r32v2);
-inline r32r2 r32r2Add(r32r2, r32r2);
-inline r32r2 r32r2Sub(r32r2, r32r2);
-inline b32   r32r2Overlaps(r32r2, r32r2);
-inline b32   r32r2Contains(r32r2, r32);
-inline r32   r32r2Len(r32r2);
-inline r32   r32r2Mid(r32r2);
+inline r32r1 R32r1(r32 Min, r32 Max);
+inline u64r1 U64r1(u64 Min, u64 Max);
+
+inline r32r1 R32r1Add(r32r1 r1, r32r1 r2);
+inline u64r1 U64r1Add(u64r1 r1, u64r1 r2);
+
+inline r32r1 R32r1Sub(r32r1 r1, r32r1 r2);
+inline u64r1 U64r1Sub(u64r1 r1, u64r1 r2);
+
+inline b32 R32r1Overlaps(r32r1 r1, r32r1 r2);
+inline b32 U64r1Overlaps(u64r1 r1, u64r1 r2);
+
+inline b32 R32r1Contains(r32r1 r, r32 x);
+inline b32 U64r1Contains(u64r1 r, u64 x);
+
+inline r32 R32r1Len(r32r1 r);
+inline u64 U64r1Len(u64r1 r);
+
+inline r32 R32r1Mid(r32r1 r);
+inline u64 U64r1Mid(u64r1 r);
+
+inline i32r2 I32r2(i32v2 Min, i32v2 Max);
+inline r32r2 R32r2(r32v2 Min, r32v2 Max);
+
+inline i32r2 I32r2Add(i32r2 r1, i32r2 r2);
+inline r32r2 R32r2Add(r32r2 r1, r32r2 r2);
+
+inline i32r2 I32r2Sub(i32r2 r1, i32r2 r2);
+inline r32r2 R32r2Sub(r32r2 r1, r32r2 r2);
+
+inline b32 I32r2Overlaps(i32r2 r1, i32r2 r2);
+inline b32 R32r2Overlaps(r32r2 r1, r32r2 r2);
+
+inline b32 I32r2Contains(i32r2 r, i32v2 v);
+inline b32 R32r2Contains(r32r2 r, r32v2 v);
+
+inline i32v2 I32r2Len(i32r2 r);
+inline r32v2 R32r2Len(r32r2 r);
+
+inline i32v2 I32r2Mid(i32r2 r);
+inline r32v2 R32r2Mid(r32r2 r);
 
 ////////////////////////
 // MEMORY
@@ -365,56 +400,18 @@ typedef struct _pool {
 	size Cap;
 	size Pos;
 } pool;
-function pool *PoolReserve  (size);
-function void  PoolRelease  (pool*);
-function void *PoolPush     (pool*, size);
-function void  PoolPopTo    (pool*, size);
-function void  PoolPopAmount(pool*, size);
+function pool *PoolReserve  (size cap);
+function void  PoolRelease  (pool *Pool);
+function void *PoolPush     (pool *Pool, size Size);
+function void  PoolPopTo    (pool *Pool, size Pos);
+function void  PoolPopAmount(pool *Pool, size Amount);
 
 typedef struct _pool_snap {
   pool *Pool;
   size  Pos;
 } pool_snap;
-function pool_snap GetPoolSnapshot(pool*);
-function void      EndPoolSnapshot(pool_snap);
-
-////////////////////////
-// STRINGS
-typedef struct _str8 {
-	c8  *Ptr;
-	size Len;
-} str8;
-typedef struct _str16 {
-	c16 *Ptr;
-	size Len;
-} str16;
-typedef struct _str32 {
-	c32 *Ptr;
-	size Len;
-} str32;
-inline   str8  Str8      (c8*,  size);
-inline   str8  Str8Range (c8*,  c8*);
-function str8  Str8Cstr  (c8*);
-inline   str16 Str16     (c16*, size);
-inline   str16 Str16Range(c16*, c16*);
-function str16 Str16Cstr (c16*);
-inline   str32 Str32     (c32*, size);
-inline   str32 Str32Range(c32*, c32*);
-function str32 Str32Cstr (c32*);
-
-typedef struct _utf_char {
-	u32  Code;
-	size Size;
-} utf_char;
-function utf_char DecodeUtf8 (c8*,  u32);
-function c32      EncodeUtf8 (c8*,  u32);
-function utf_char DecodeUtf16(c16*, u32);
-function c32      EncodeUtf16(c16*, u32);
-
-function str32 ConvertStr8ToStr32(pool*, str8);
-function str8  ConvertStr32ToStr8(pool*, str32);
-function str16 ConvertStr8ToStr16(pool*, str8);
-function str8  ConvertStr16ToStr8(pool*, str16);
+function pool_snap GetPoolSnapshot(pool *Pool);
+function void      EndPoolSnapshot(pool_snap Snap);
 
 ////////////////////////
 // DYNAMIC ARRAY
@@ -422,8 +419,8 @@ function str8  ConvertStr16ToStr8(pool*, str16);
 
 #define array(type) struct { size Cap, Len; type *Mem; }
 
-function b32 _ArrayMake(size*, size*, size, void**, size);
-function b32 _ArrayGrow(size*, size*, size, void**);
+function b32 _ArrayMake(size *Cap, size *Len, size Itm, void **Mem, size InitCap);
+function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem);
 
 #define _ArrayExp(Array) &(Array)->Cap, &(Array)->Len, sizeof(*(Array)->Mem), cast(void**, &(Array)->Mem) 
 #define  ArrayMake(Array, Len) _ArrayMake(_ArrayExp(Array), (Len))
@@ -439,6 +436,44 @@ function b32 _ArrayGrow(size*, size*, size, void**);
 ////////////////////////
 // HASH TABLE
 Todo();
+
+////////////////////////
+// STRINGS
+typedef struct _str8 {
+	c8  *Ptr;
+	size Len;
+} str8;
+typedef struct _str16 {
+	c16 *Ptr;
+	size Len;
+} str16;
+typedef struct _str32 {
+	c32 *Ptr;
+	size Len;
+} str32;
+inline   str8  Str8      (c8  *Ptr,   size Len);
+inline   str8  Str8Range (c8  *Start, c8  *End);
+function str8  Str8Cstr  (c8  *Ptr);
+inline   str16 Str16     (c16 *Ptr,   size Len);
+inline   str16 Str16Range(c16 *Start, c16 *End);
+function str16 Str16Cstr (c16 *Ptr);
+inline   str32 Str32     (c32 *Ptr,   size Len);
+inline   str32 Str32Range(c32 *Start, c32 *End);
+function str32 Str32Cstr (c32 *Ptr);
+
+typedef struct _utf_char {
+	u32  Code;
+	size Size;
+} utf_char;
+function utf_char DecodeUtf8 (c8  *Ptr, u32 Size);
+function c32      EncodeUtf8 (c8  *Dst, u32 Codepoint);
+function utf_char DecodeUtf16(c16 *Ptr, u32 Size);
+function c32      EncodeUtf16(c16 *Dst, u32 Codepoint);
+
+function str32 ConvertStr8ToStr32(pool *Pool, str8  Str);
+function str8  ConvertStr32ToStr8(pool *Pool, str32 Str);
+function str16 ConvertStr8ToStr16(pool *Pool, str8  Str);
+function str8  ConvertStr16ToStr8(pool *Pool, str16 Str);
 
 ////////////////////////
 // TIME
@@ -475,8 +510,8 @@ typedef struct _date_time {
   u8  Month; // [1, 12]
   i16 Year;  // 1 = 1CE, 2020 = 2020CE, 0 = 1BCE, -100 = 101BCE, etc.
 } date_time;
-function dense_time DenseTimeFromDate(date_time*);
-function date_time  DateTimeFromDense(dense_time);
+function dense_time DenseTimeFromDate(date_time *Date);
+function date_time  DateTimeFromDense(dense_time Dense);
 
 ////////////////////////
 // FILE PROPERTIES
@@ -490,22 +525,22 @@ typedef struct _file_properties {
 
 ////////////////////////
 // SYSTEM INTERFACE
-function b32  SysInit(i32, c8**);
+function b32  SysInit(i32 Argc, c8 **Argv);
 function void SysEnd(void);
 
-function byte *SysMemReserve(size, u32);
-function void  SysMemRelease(byte*, size);
+function byte *SysMemReserve(size Size, u32 Flags);
+function void  SysMemRelease(void *Ptr, size Size);
 
 function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
-function void SysSleep(u32);
+function void SysSleep(u32 Milliseconds);
 
-function file_properties SysGetFileProps(str8);
-function str8 SysOpenFile  (pool*, str8);
-function b32  SysSaveFile  (str8,  str8);
-function b32  SysDeleteFile(str8);
-function b32  SysRenameFile(str8, str8);
-function b32  SysCreateDir (str8);
-function b32  SysDeleteDir (str8);
+function file_properties SysGetFileProps(str8 Path);
+function str8 SysOpenFile  (pool *Pool,  str8 Path);
+function b32  SysSaveFile  (str8  Data,  str8 Path);
+function b32  SysRenameFile(str8  Old,   str8 New);
+function b32  SysDeleteFile(str8  Path);
+function b32  SysCreateDir (str8  Path);
+function b32  SysDeleteDir (str8  Path);
 
 ////////////////////////
 // OPENGL
@@ -548,7 +583,7 @@ typedef struct _button {
   b8 Pressed  : 1;
   b8 Released : 1;
 } button;
-inline function void UpdateButton(button*, b32);
+inline function void UpdateButton(button *Button, b32 IsDown);
 
 typedef struct _sys_specific_window sys_specific_window;
 typedef enum _gfx_api_kind {
@@ -569,12 +604,12 @@ typedef struct _window {
   button       Buttons[WINDOW_BUTTON_COUNT];
 } window;
 
-function window *WndInit(gfx_api_kind);
-function void    WndEnd(window*);
+//.note: For default width and height pass 0. For default x and y positions pass -1.
+function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y);
+function void    WndEnd(window *Window);
 
-function void WndGetInput(window*);
-function void WndBeginRendering(window*);
-function void WndEndRendering(window*);
+function void WndBeginFrame(window *Window);
+function void WndEndFrame  (window *Window);
 
 
 #endif//FOUNDATION_HEADER
@@ -586,225 +621,218 @@ function void WndEndRendering(window*);
 
 ////////////////////////
 // MATH FUNCTIONS
-function r32 r32Trunc(r32 x) {
-  Todo();
-  return 0;
+function r32 R32Trunc(r32 x) {
+  return truncf(x);
 }
-function r32 r32Floor(r32 x) {
-  Todo();
-  return 0;
-}
-function r32 r32Ceil(r32 x) {
-  Todo();
-  return 0;
+function r64 R64Trunc(r64 x) {
+  return trunc(x);
 }
 
-function r32 r32Abs(r32 x) {
-  Todo();
-  return 0;
+function r32 R32Floor(r32 x) {
+  return floorf(x);
 }
-function r64 r64Abs(r64 x) {
-  Todo();
-  return 0;
+function r64 R64Floor(r64 x) {
+  return floor(x);
 }
 
-function r32 r32Sign(r32 x) {
-  Todo();
-  return 0;
+function r32 R32Ceil(r32 x) {
+  return ceilf(x);
 }
-function r64 r64Sign(r64 x) {
-  Todo();
-  return 0;
+function r64 R64Ceil(r64 x) {
+  return ceil(x);
 }
 
-function r32 r32Sqrt(r32 x) {
-  Todo();
-  return 0;
-}
-function r64 r64Sqrt(r64 x) {
-  Todo();
-  return 0;
-}
-
-function r32 r32Log(r32 x) {
-  Todo();
-  return 0;
-}
-function r64 r64Log(r64 x) {
-  Todo();
-  return 0;
+function r32 R32Abs(r32 x) {
+  union { r32 f; u32 u; } r = {x};
+  r.u &= 0x7fffffff;
+  return r.f;
+} 
+function r64 R64Abs(r64 x) {
+  union { r64 f; u64 u; } r = {x};
+  r.u &= 0x7fffffffffffffff;
+  return(r.f);
 }
 
-function r32 r32Sin(r32 x) {
-  Todo();
-  return 0;
+function r32 R32Sign(r32 x) {
+  union { r32 f; u32 u; } r = {x};
+  return (r.u&0x80000000)? -1.f : 1.f;
 }
-function r64 r64Sin(r64 x) {
-  Todo();
-  return 0;
-}
-
-function r32 r32Cos(r32 x) {
-  Todo();
-  return 0;
-}
-function r64 r64Cos(r64 x) {
-  Todo();
-  return 0;
+function r64 R64Sign(r64 x) {
+  union { r64 f; u64 u; } r = {x};
+  return (r.u&0x8000000000000000)? -1. : 1.;
 }
 
-function r32 r32Tan(r32 x) {
-  Todo();
-  return 0;
+function r32 R32Sqrt(r32 x) {
+  return sqrtf(x);
 }
-function r64 r64Tan(r64 x) {
-  Todo();
-  return 0;
+function r64 R64Sqrt(r64 x) {
+  return sqrt(x);
 }
 
-function r32 r32Atan(r32 x) {
-  Todo();
-  return 0;
+function r32 R32Log(r32 x) {
+  return logf(x);
 }
-function r64 r64Atan(r64 x) {
-  Todo();
-  return 0;
+function r64 R64Log(r64 x) {
+  return log(x);
 }
 
-function r32 r32Pow(r32 x, r32 p) {
-  Todo();
-  return 0;
+function r32 R32Sin(r32 x) {
+  return sinf(x);
 }
-function r64 r64Pow(r64 x, r64 p) {
-  Todo();
-  return 0;
+function r64 R64Sin(r64 x) {
+  return sin(x);
+}
+
+function r32 R32Cos(r32 x) {
+  return cosf(x);
+}
+function r64 R64Cos(r64 x) {
+  return cos(x);
+}
+
+function r32 R32Tan(r32 x) {
+  return tanf(x);
+}
+function r64 R64Tan(r64 x) {
+  return tan(x);
+}
+
+function r32 R32InvSin(r32 x) {
+  return asinf(x);
+}
+function r64 R64InvSin(r64 x) {
+  return asin(x);
+}
+
+function r32 R32InvCos(r32 x) {
+  return acosf(x);
+}
+function r64 R64InvCos(r64 x) {
+  return acos(x);
+}
+
+function r32 R32InvTan(r32 x) {
+  return atanf(x);
+}
+function r64 R64InvTan(r64 x) {
+  return atan(x);
+}
+
+function r32 R32Atan(r32 x) {
+  return atanf(x);
+}
+function r64 R64Atan(r64 x) {
+  return atan(x);
+}
+
+function r32 R32Pow(r32 x, r32 p) {
+  return powf(x, p);
+}
+function r64 R64Pow(r64 x, r64 p) {
+  return pow(x, p);
 }
 
 inline i32v2 I32v2(i32 x, i32 y) {
   i32v2 Res = {x, y};
   return Res;
 }
-inline i32v2 i32v2Add(i32v2 a, i32v2 b) {
-  i32v2 Res = {a.x + b.x, a.y + b.y};
-  return Res;
-}
-inline i32v2 i32v2Sub(i32v2 a, i32v2 b) {
-  i32v2 Res = {a.x - b.x, a.y - b.y};
-  return Res;
-}
-
 inline r32v2 R32v2(r32 x, r32 y) {
   r32v2 Res = {x, y};
   return Res;
 }
-inline r32v2 r32v2Add(r32v2 a, r32v2 b) {
-  r32v2 Res = {a.x + b.x, a.y + b.y};
-  return Res;
-}
-inline r32v2 r32v2Sub(r32v2 a, r32v2 b) {
-  r32v2 Res = {a.x - b.x, a.y - b.y};
-  return Res;
-}
 
-inline u64r1 U64r1(u64 Min, u64 Max) {
-  u64r1 Res = {Min, Max};
-  return Res;
-}
-inline u64r1 u64r1Add(u64r1 r1, u64r1 r2) {
-  u64r1 Res = {0};
-  Todo();
-  return Res;
-}
-inline u64r1 u64r1Sub(u64r1 r1, u64r1 r2) {
-  u64r1 Res = {0};
-  Todo();
-  return Res;
-}
-inline b32 u64r1Overlaps(u64r1 r1, u64r1 r2) { return false; }
-inline b32 u64r1Contains(u64r1 r, u64 x) { return false; }
-inline u64 u64r1Len(u64r1 r) {
-  Todo();
-  return 0;
-}
-inline u64 u64r1Mid(u64r1 r) {
-  Todo();
-  return 0;
-}
+inline i32v2 I32v2Add(i32v2 v1, i32v2 v2) { return I32v2(V2AddComps(v1, v2)); }
+inline r32v2 R32v2Add(r32v2 v1, r32v2 v2) { return R32v2(V2AddComps(v1, v2)); }
+
+inline i32v2 I32v2Sub(i32v2 v1, i32v2 v2) { return I32v2(V2SubComps(v1, v2)); }
+inline r32v2 R32v2Sub(r32v2 v1, r32v2 v2) { return R32v2(V2SubComps(v1, v2)); }
 
 inline r32r1 R32r1(r32 Min, r32 Max) {
   r32r1 Res = {Min, Max};
   return Res;
 }
-inline r32r1 r32r1Add(r32r2 r1, r32r2 r2) {
+inline u64r1 U64r1(u64 Min, u64 Max) {
+  u64r1 Res = {Min, Max};
+  return Res;
+}
+
+inline r32r1 R32r1Add(r32r1 r1, r32r1 r2) {
   r32r1 Res = {0};
   Todo();
   return Res;
 }
-inline r32r1 r32r1Sub(r32r2 r1, r32r2 r2) {
+inline u64r1 U64r1Add(u64r1 r1, u64r1 r2) {
+  u64r1 Res = {0};
+  Todo();
+  return Res;
+}
+
+inline r32r1 R32r1Sub(r32r1 r1, r32r1 r2) {
   r32r1 Res = {0};
   Todo();
   return Res;
 }
-inline b32 r32r1Overlaps(r32r2 r1, r32r2 r2) { return false; }
-inline b32 r32r1Contains(r32r2 r, r32 x) { return false; }
-inline r32 r32r1Len(r32r2 r) {
+inline u64r1 U64r1Sub(u64r1 r1, u64r1 r2) {
+  u64r1 Res = {0};
   Todo();
-  return 0;
+  return Res;
 }
-inline r32 r32r1Mid(r32r2 r) {
-  Todo();
-  return 0;
-}
+
+inline b32 R32r1Overlaps(r32r1 r1, r32r1 r2) { return R1Overlap(r1, r2); }
+inline b32 U64r1Overlaps(u64r1 r1, u64r1 r2) { return R1Overlap(r1, r2); }
+
+inline b32 R32r1Contains(r32r1 r, r32 x) { return R1Contains(r, x); }
+inline b32 U64r1Contains(u64r1 r, u64 x) { return R1Contains(r, x); }
+
+inline r32 R32r1Len(r32r1 r) { return R1Len(r); }
+inline u64 U64r1Len(u64r1 r) { return R1Len(r); }
+
+inline r32 R32r1Mid(r32r1 r) { return R1Mid(r); }
+inline u64 U64r1Mid(u64r1 r) { return R1Mid(r); }
+
 
 inline i32r2 I32r2(i32v2 Min, i32v2 Max) {
   i32r2 Res = {Min, Max};
   return Res;
 }
-inline i32r2 i32r2Add(i32r2 r1, i32r2 r2) {
-  i32r2 Res = {0};
-  Todo();
-  return Res;
-}
-inline i32r2 i32r2Sub(i32r2 r1, i32r2 r2) {
-  i32r2 Res = {0};
-  Todo();
-  return Res;
-}
-inline b32 i32r2Overlaps(i32r2 r1, i32r2 r2) { return false; }
-inline b32 i32r2Contains(i32r2 r, i32 x) { return false; }
-inline i32 i32r2Len(i32r2 r) {
-  Todo();
-  return 0;
-}
-inline i32 i32r2Mid(i32r2 r) {
-  Todo();
-  return 0;
-}
-
 inline r32r2 R32r2(r32v2 Min, r32v2 Max) {
   r32r2 Res = {Min, Max};
   return Res;
 }
-inline r32r2 r32r2Add(r32r2 r1, r32r2 r2) {
+
+inline i32r2 I32r2Add(i32r2 r1, i32r2 r2) {
+  i32r2 Res = {0};
+  Todo();
+  return Res;
+}
+inline r32r2 R32r2Add(r32r2 r1, r32r2 r2) {
   r32r2 Res = {0};
   Todo();
   return Res;
 }
-inline r32r2 r32r2Sub(r32r2 r1, r32r2 r2) {
+
+inline i32r2 I32r2Sub(i32r2 r1, i32r2 r2) {
+  i32r2 Res = {0};
+  Todo();
+  return Res;
+}
+inline r32r2 R32r2Sub(r32r2 r1, r32r2 r2) {
   r32r2 Res = {0};
   Todo();
   return Res;
 }
-inline b32 r32r2Overlaps(r32r2 r1, r32r2 r2) { return false; }
-inline b32 r32r2Contains(r32r2 r, r32 x) { return false; }
-inline r32 r32r2Len(r32r2 r) {
-  Todo();
-  return 0;
-}
-inline r32 r32r2Mid(r32r2 r) {
-  Todo();
-  return 0;
-}
+
+inline b32 I32r2Overlaps(i32r2 r1, i32r2 r2) { return R2Overlap(r1, r2); }
+inline b32 R32r2Overlaps(r32r2 r1, r32r2 r2) { return R2Overlap(r1, r2); }
+
+inline b32 I32r2Contains(i32r2 r, i32v2 v) { return R2Contains(r, v); }
+inline b32 R32r2Contains(r32r2 r, r32v2 v) { return R2Contains(r, v); }
+
+inline i32v2 I32r2Len(i32r2 r) { return I32v2(R2LenComps(r)); }
+inline r32v2 R32r2Len(r32r2 r) { return R32v2(R2LenComps(r)); }
+
+inline i32v2 I32r2Mid(i32r2 r) { return I32v2(R2MidComps(r)); }
+inline r32v2 R32r2Mid(r32r2 r) { return R32v2(R2MidComps(r)); }
 
 ////////////////////////
 // MEMORY
@@ -1141,7 +1169,7 @@ function b32 SysInit(i32 Argc, c8 **Argv) {
   return true;
 }
 
-function void SysEnd() {
+function void SysEnd(void) {
   PoolRelease(GlobalWin32Pool);
 }
 
@@ -1159,13 +1187,13 @@ function byte *SysMemReserve(size Size, u32 Flags) {
     ProtectionFlags |= PAGE_READWRITE;
   return cast(byte*, VirtualAlloc(null, Size, MEM_RESERVE | MEM_COMMIT, ProtectionFlags));
 }
-function void SysMemRelease(byte *Ptr, size Size) {
+function void SysMemRelease(void *Ptr, size Size) {
   VirtualFree(Ptr, Size, MEM_RELEASE);
 }
 
 ////////////////////////
 // TIME
-function u64 SysGetMicroseconds() {
+function u64 SysGetMicroseconds(void) {
   LARGE_INTEGER PerfCounter = {0};
   if (QueryPerformanceCounter(&PerfCounter))
     return PerfCounter.QuadPart*Million(1)/GlobalWin32TicksPerSecond;
@@ -1233,22 +1261,22 @@ function str8 SysOpenFile(pool *Pool, str8 Path) {
   EndPoolSnapshot(Snap);
   return Res;
 }
-function b32 SysSaveFile(str8 Path, str8 Data) {
+function b32 SysSaveFile(str8 Data, str8 Path) {
   Todo();
   return false;
-}
-function b32 SysDeleteFile(str8 Path) {
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
-  str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
-  b32       Success   = DeleteFileW(cast(WCHAR*, PathUtf16.Ptr));
-  EndPoolSnapshot(Snap);
-  return Success;
 }
 function b32 SysRenameFile(str8 Old, str8 New) {
   pool_snap Snap     = GetPoolSnapshot(GlobalWin32Pool);
   str16     OldUtf16 = ConvertStr8ToStr16(Snap.Pool, Old);
   str16     NewUtf16 = ConvertStr8ToStr16(Snap.Pool, New);
   b32       Success  = MoveFileW(cast(WCHAR*, OldUtf16.Ptr), cast(WCHAR*, NewUtf16.Ptr));
+  EndPoolSnapshot(Snap);
+  return Success;
+}
+function b32 SysDeleteFile(str8 Path) {
+  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
+  b32       Success   = DeleteFileW(cast(WCHAR*, PathUtf16.Ptr));
   EndPoolSnapshot(Snap);
   return Success;
 }
@@ -1515,10 +1543,6 @@ function void _Win32EquipWindowWithOpenGL(window *Window) {
     SysWnd->GfxCtx = Ctx;
     Window->GfxApi = Api;
   }
-
-  // Show window.
-  if (!Window->Errors.Len)
-    ShowWindow(SysWnd->WindowHandle, SW_SHOW);
 }
 function void _Win32EndWindowWithOpenGL(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
@@ -1545,16 +1569,20 @@ typedef struct _d3d11_ctx {
 } d3d11_ctx;
 
 function void _Win32EquipWindowWithD3d11(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 function void _Win32EndWindowWithD3d11(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 
 function void _Win32BeginRenderingWithD3d11(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 function void _Win32EndRenderingWithD3d11(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 
@@ -1565,16 +1593,20 @@ typedef struct _vulkan_ctx {
 } vulkan_ctx;
 
 function void _Win32EquipWindowWithVulkan(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 function void _Win32EndWindowWithVulkan(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 
 function void _Win32BeginRenderingWithVulkan(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 function void _Win32EndRenderingWithVulkan(window *Window) {
+  sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 
@@ -1615,7 +1647,7 @@ function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
   }
 }
 
-function window *WndInit(gfx_api_kind GfxApiKind) {
+function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y) {
   window              *Window = PoolPush(GlobalWin32Pool, sizeof(window));
   sys_specific_window *SysWnd = PoolPush(GlobalWin32Pool, sizeof(sys_specific_window));
   ZeroMemory(Window, sizeof(window));
@@ -1646,8 +1678,19 @@ function window *WndInit(gfx_api_kind GfxApiKind) {
     ArrayAdd(&Window->Errors, "could not create window class");
 
   // Create window.
+  i32 WndX = (x==-1)? CW_USEDEFAULT : x;
+  i32 WndY = (y==-1)? CW_USEDEFAULT : y;
+  i32 WndW = (w==0)?  CW_USEDEFAULT : w;
+  i32 WndH = (h==0)?  CW_USEDEFAULT : h;
+  if (w != 0 && h != 0) {
+    RECT WindowRect = {.right = WndW, .bottom = WndW};
+    if (AdjustWindowRect(&WindowRect, WS_OVERLAPPEDWINDOW, 0)) {
+      WndW = WindowRect.right  - WindowRect.left;
+      WndH = WindowRect.bottom - WindowRect.top;
+    }
+  }
   if (!Window->Errors.Len)
-    SysWnd->WindowHandle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, SysWnd->Instance, 0);
+    SysWnd->WindowHandle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, WndX, WndY, WndW, WndH, 0, 0, SysWnd->Instance, 0);
   if (!SysWnd->WindowHandle)
     ArrayAdd(&Window->Errors, "could not create window");
   if (!Window->Errors.Len)
@@ -1667,6 +1710,10 @@ function window *WndInit(gfx_api_kind GfxApiKind) {
   else
   if (Window->GfxApiKind == gfx_api_Vulkan)
     _Win32EquipWindowWithVulkan(Window);
+
+  // Show window.
+  if (!Window->Errors.Len)
+    ShowWindow(SysWnd->WindowHandle, SW_SHOWDEFAULT);
 
   if (Window->Errors.Len) {
     fprintf(stderr, "There were %d errors during the creation of the window:\n", cast(int, Window->Errors.Len));
@@ -1691,7 +1738,13 @@ function void WndEnd(window *Window) {
     _Win32EndWindowWithVulkan(Window);
 }
 
-function void WndGetInput(window *Window) {
+function void WndBeginFrame(window *Window) {
+  if (Window->Errors.Len)
+    return;
+
+  Window->FrameStart = SysGetMicroseconds();
+  Window->LostFrames = false;
+  
   sys_specific_window *SysWnd = Window->SysWnd;
 
   SwitchToFiber(SysWnd->MessageFiber);
@@ -1725,14 +1778,6 @@ function void WndGetInput(window *Window) {
       );
     }
   }
-}
-function void WndBeginRendering(window *Window) {
-  if (Window->Errors.Len)
-    return;
-
-  Window->FrameStart = SysGetMicroseconds();
-  if (Window->Errors.Len)
-    return;
 
   if (Window->GfxApiKind == gfx_api_Opengl)
     _Win32BeginRenderingWithOpenGL(Window);
@@ -1743,7 +1788,7 @@ function void WndBeginRendering(window *Window) {
   if (Window->GfxApiKind == gfx_api_Vulkan)
     _Win32BeginRenderingWithVulkan(Window);
 }
-function void WndEndRendering(window *Window) {
+function void WndEndFrame(window *Window) {
   if (Window->Errors.Len)
     return;
 
