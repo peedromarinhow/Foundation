@@ -99,7 +99,7 @@
 #define unused(a)  ((void)a)
 #define countof(a) ((int)(sizeof(a) / sizeof(*(a))))
 #define cast(t, x) ((t)(x))
-//.note: These were written with a lowecase first letter because they were supposed to be more like C keywords.
+//.note: These were Written with a lowecase first letter because they were supposed to be more like C keywords.
 
 #define _Glue(x, y) x##y
 #define Glue(x, y) _Glue(x, y)
@@ -424,6 +424,7 @@ function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem);
 
 #define _ArrayExp(Array) &(Array)->Cap, &(Array)->Len, sizeof(*(Array)->Mem), cast(void**, &(Array)->Mem) 
 #define  ArrayMake(Array, Len) _ArrayMake(_ArrayExp(Array), (Len))
+#define  ArrayFree(Array) SysMemRelease((Array)->Mem, (Array)->Cap*sizeof(*(Array)->Mem)), (Array)->Cap = 0, (Array)->Len = 0, (Array)->Mem = null
 #define  ArrayAdd(Array, x) (       \
   ((Array)->Cap < (Array)->Len + 1)? \
     _ArrayGrow(_ArrayExp(Array))     \
@@ -527,6 +528,7 @@ typedef struct _file_properties {
 // SYSTEM INTERFACE
 function b32  SysInit(i32 Argc, c8 **Argv);
 function void SysEnd(void);
+function void SysAbort(i32 Code);
 
 function byte *SysMemReserve(size Size, u32 Flags);
 function void  SysMemRelease(void *Ptr, size Size);
@@ -545,11 +547,16 @@ function b32  SysDeleteDir (str8  Path);
 ////////////////////////
 // OPENGL
 #define GL_COLOR_BUFFER_BIT 0x00004000
-typedef void gl_clear_color_proc(r32, r32, r32, r32);
-typedef void gl_clear_proc(u32);
+
+// These are the opengl functions to be loaded. All of them are supposed to be platform-agnostic.
+#define SELECTED_OPENGL_FUNCTIONS(Macro)                                \
+  Macro(void, (r32 r, r32 g, r32 b, r32 a), ClearColor, "glClearColor") \
+  Macro(void, (u32 mask),                   Clear,      "glClear")      \
+
 typedef struct _opengl_api {
-  gl_clear_color_proc *ClearColor;
-  gl_clear_proc       *Clear;
+  #define Decl(type, args, Name, Str) type (*Name) args;
+    SELECTED_OPENGL_FUNCTIONS(Decl)
+  #undef Decl
 } opengl_api;
 
 ////////////////////////
@@ -568,15 +575,23 @@ typedef struct _vulkan_api {
 // WINDOW INTERFACE
 #define WINDOW_BUTTON_COUNT 256
 enum _buttons {
-  button_Up,
+  button_Up = 1,
   button_Down,
   button_Left,
   button_Right,
-  button_Crtl,
-  button_Alt,
-  button_Shift,
-  button_Esc,
-  button_Count,
+
+  button_F1,
+  button_F2,
+  button_F3,
+  button_F4,
+  button_F5,
+  button_F6,
+  button_F7,
+  button_F8,
+  button_F9,
+  button_F10,
+  button_F11,
+  button_F12,
 };
 typedef struct _button {
   b8 Down     : 1;
@@ -587,6 +602,7 @@ inline function void UpdateButton(button *Button, b32 IsDown);
 
 typedef struct _sys_specific_window sys_specific_window;
 typedef enum _gfx_api_kind {
+  gfx_api_None,
   gfx_api_Opengl,
   gfx_api_D3d11,
   gfx_api_Vulkan,
@@ -604,7 +620,7 @@ typedef struct _window {
   button       Buttons[WINDOW_BUTTON_COUNT];
 } window;
 
-//.note: For default width and height pass 0. For default x and y positions pass -1.
+//.note: For default width and height the default value is 0. For default x and y the default value is -1.
 function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y);
 function void    WndEnd(window *Window);
 
@@ -1168,9 +1184,11 @@ function b32 SysInit(i32 Argc, c8 **Argv) {
 
   return true;
 }
-
 function void SysEnd(void) {
   PoolRelease(GlobalWin32Pool);
+}
+function void SysAbort(i32 Code) {
+  ExitProcess(Code);
 }
 
 ////////////////////////
@@ -1313,7 +1331,14 @@ struct _sys_specific_window {
 
 ////////////////////////
 // OPENGL
-#define WGL_ARB_pixel_format 1
+typedef HGLRC wgl_create_context_proc  (HDC);
+typedef BOOL  wgl_delete_context_proc  (HGLRC);
+typedef BOOL  wgl_make_current_proc    (HDC, HGLRC);
+typedef PROC  wgl_get_proc_address_proc(LPCSTR);
+
+typedef BOOL  wgl_choose_pixel_format_arb_proc   (HDC, const int*, const float*, UINT, int*, UINT*);
+typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
+
 #define WGL_NUMBER_PIXEL_FORMATS_ARB    0x2000
 #define WGL_DRAW_TO_WINDOW_ARB          0x2001
 #define WGL_DRAW_TO_BITMAP_ARB          0x2002
@@ -1375,38 +1400,38 @@ struct _sys_specific_window {
 #define WGL_CONTEXT_CORE_PROFILE_BIT_ARB          0x00000001
 #define WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB 0x00000002
 
-typedef HGLRC wgl_create_context_proc  (HDC);
-typedef BOOL  wgl_delete_context_proc  (HGLRC);
-typedef BOOL  wgl_make_current_proc    (HDC, HGLRC);
-typedef PROC  wgl_get_proc_address_proc(LPCSTR);
-
-typedef BOOL  wgl_choose_pixel_format_arb_proc   (HDC, const int*, const float*, UINT, int*, UINT*);
-typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
-
 typedef struct _opengl_ctx {
   HGLRC                    Hglrc;
   wgl_make_current_proc   *MakeCurrent;
   wgl_delete_context_proc *DeleteContext;
 } opengl_ctx;
 
-function void _Win32EquipWindowWithOpenGL(window *Window) {
+//.link: https://www.khronos.org/opengl/wiki/Load_OpenGL_Functions
+function void *_Win32OpenGLGetAnyFuncAddress(wgl_get_proc_address_proc *WglGetProcAddressProc, HMODULE OpenGLModule, const c8 *Name) {
+  void *Proc = (void *)WglGetProcAddressProc(Name);
+  if (Proc == 0 || (Proc == (void*)0x1) || (Proc == (void*)0x2) || (Proc == (void*)0x3) || (Proc == (void*)-1))
+    Proc = (void *)GetProcAddress(OpenGLModule, Name);
+  return Proc;
+}
+
+function void _Win32OpenGLWndInit(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
 
-  // Load opengl32.dll and opengl functions from it.
-  HMODULE OpenglModule = null;
+  // Load opengl32.dll and the functions we need.
+  HMODULE OpenGLModule = null;
   if (!Window->Errors.Len)
-    OpenglModule = LoadLibraryA("opengl32.dll");
-  if (OpenglModule == 0)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module");
+    OpenGLModule = LoadLibraryA("opengl32.dll");
+  if (OpenGLModule == null)
+    ArrayAdd(&Window->Errors, "(opengl startup) could not load \"opengl32.dll\".");
   wgl_create_context_proc   *WglCreateContextProc  = null;
   wgl_delete_context_proc   *WglDeleteContextProc  = null;
   wgl_make_current_proc     *WglMakeCurrentProc    = null;
   wgl_get_proc_address_proc *WglGetProcAddressProc = null;
   if (!Window->Errors.Len) {
-    WglCreateContextProc  = cast(wgl_create_context_proc*,   GetProcAddress(OpenglModule, "wglCreateContext"));
-    WglDeleteContextProc  = cast(wgl_delete_context_proc*,   GetProcAddress(OpenglModule, "wglDeleteContext"));
-    WglMakeCurrentProc    = cast(wgl_make_current_proc*,     GetProcAddress(OpenglModule, "wglMakeCurrent"));
-    WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenglModule, "wglGetProcAddress"));
+    WglCreateContextProc  = cast(wgl_create_context_proc*,   GetProcAddress(OpenGLModule, "wglCreateContext"));
+    WglDeleteContextProc  = cast(wgl_delete_context_proc*,   GetProcAddress(OpenGLModule, "wglDeleteContext"));
+    WglMakeCurrentProc    = cast(wgl_make_current_proc*,     GetProcAddress(OpenGLModule, "wglMakeCurrent"));
+    WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenGLModule, "wglGetProcAddress"));
   }
   if (!WglCreateContextProc || !WglDeleteContextProc || !WglMakeCurrentProc || !WglGetProcAddressProc)
     ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module functions");
@@ -1532,80 +1557,111 @@ function void _Win32EquipWindowWithOpenGL(window *Window) {
     Ctx->MakeCurrent   = WglMakeCurrentProc;
     Ctx->DeleteContext = WglDeleteContextProc;
   }
+  if (!Ctx->MakeCurrent(SysWnd->DeviceContext, Ctx->Hglrc))
+    ArrayAdd(&Window->Errors, "(opengl) could not make current context");
 
   // Create opengl api.
   opengl_api *Api = PoolPush(GlobalWin32Pool, sizeof(opengl_api));
-  Api->ClearColor = cast(gl_clear_color_proc*, GetProcAddress(OpenglModule, "glClearColor"));
-  Api->Clear      = cast(gl_clear_proc*,       GetProcAddress(OpenglModule, "glClear"));
-  if (!Api->ClearColor || !Api->Clear)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not load extended opengl procedures");
+  #define Assign(type, args, Name, Str)                                                                     \
+    Api->Name = cast(type(*)args, _Win32OpenGLGetAnyFuncAddress(WglGetProcAddressProc, OpenGLModule, Str)); \
+    if (!Api->Name)                                                                                         \
+      ArrayAdd(&Window->Errors, "(opengl startup) could not load \"" Str "\"");
+    SELECTED_OPENGL_FUNCTIONS(Assign)
+  #undef Assign
+
   if (!Window->Errors.Len) {
     SysWnd->GfxCtx = Ctx;
     Window->GfxApi = Api;
   }
 }
-function void _Win32EndWindowWithOpenGL(window *Window) {
+function void _Win32OpenGLWndEnd(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
-  opengl_ctx *Wgl = cast(opengl_ctx*, SysWnd->GfxCtx);
-  Wgl->DeleteContext(Wgl->Hglrc);
+  opengl_ctx *Ctx = cast(opengl_ctx*, SysWnd->GfxCtx);
+  if (!Window->Errors.Len)
+    Ctx->DeleteContext(Ctx->Hglrc);
 }
 
-function void _Win32BeginRenderingWithOpenGL(window *Window) {
+function void _Win32OpenGLBeginFrame(window *Window) {
+  if (Window->Finish)
+    return;
+
   sys_specific_window *SysWnd = Window->SysWnd;
+  opengl_ctx          *Ctx    = cast(opengl_ctx*, SysWnd->GfxCtx);
   SysWnd->DeviceContext = GetDC(SysWnd->WindowHandle);
-  opengl_ctx *Wgl = cast(opengl_ctx*, SysWnd->GfxCtx);
-  Wgl->MakeCurrent(SysWnd->DeviceContext, Wgl->Hglrc);
+  if (!Ctx->MakeCurrent( SysWnd->DeviceContext, Ctx->Hglrc))
+    ArrayAdd(&Window->Errors, "(opengl) could not make current context");
 }
-function void _Win32EndRenderingWithOpenGL(window *Window) {
+function void _Win32OpenGLEndFrame(window *Window) {
+  if (Window->Finish)
+    return;
+
   sys_specific_window *SysWnd = Window->SysWnd;
-  SwapBuffers(SysWnd->DeviceContext);
+  if (!SwapBuffers(SysWnd->DeviceContext))
+    ArrayAdd(&Window->Errors, "(opengl) could not swap buffers");
+  if (Window->Errors.Len)
+    Window->Finish = true;
   ReleaseDC(SysWnd->WindowHandle, SysWnd->DeviceContext);
 }
 
 ////////////////////////
 // D3D11
 typedef struct _d3d11_ctx {
-  int Temp;
+  int Tmp;
 } d3d11_ctx;
 
-function void _Win32EquipWindowWithD3d11(window *Window) {
+function void _Win32D3d11WndInit(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
+
+  // Load d3d11.dll and the functions we need.
+  HMODULE D3d11Module = null;
+  if (!Window->Errors.Len)
+    D3d11Module = LoadLibraryA("d3d11.dll");
+  if (D3d11Module == null)
+    ArrayAdd(&Window->Errors, "(d3d11 startup) could not load \"d3d11.dll\".");
+  if (!Window->Errors.Len) {
+  }
+
   Todo();
 }
-function void _Win32EndWindowWithD3d11(window *Window) {
+function void _Win32D3d11WndEnd(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 
-function void _Win32BeginRenderingWithD3d11(window *Window) {
+function void _Win32D3d11BeginFrame(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
-function void _Win32EndRenderingWithD3d11(window *Window) {
+function void _Win32D3d11EndFrame(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 
 ////////////////////////
 // VULKAN
+#undef function
+// #define VK_USE_PLATFORM_WIN32_KHR
+// #include "vulkan/vulkan.h"
+#define function static
+
 typedef struct _vulkan_ctx {
-  int Temp;
+  int Tmp;
 } vulkan_ctx;
 
-function void _Win32EquipWindowWithVulkan(window *Window) {
+function void _Win32VulkanWndInit(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
-function void _Win32EndWindowWithVulkan(window *Window) {
+function void _Win32VulkanWndEnd(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
 
-function void _Win32BeginRenderingWithVulkan(window *Window) {
+function void _Win32VulkanBeginFrame(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
-function void _Win32EndRenderingWithVulkan(window *Window) {
+function void _Win32VulkanEndFrame(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   Todo();
 }
@@ -1702,42 +1758,73 @@ function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y) {
   if (!SysWnd->DeviceContext)
     ArrayAdd(&Window->Errors, "could not create dummy device context for loading opengl");
 
+  if (Window->GfxApiKind == gfx_api_None)
+    Todo();
+  else
   if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32EquipWindowWithOpenGL(Window);
+    _Win32OpenGLWndInit(Window);
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32EquipWindowWithD3d11(Window);
+    _Win32D3d11WndInit(Window);
   else
   if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32EquipWindowWithVulkan(Window);
+    _Win32VulkanWndInit(Window);
 
   // Show window.
   if (!Window->Errors.Len)
     ShowWindow(SysWnd->WindowHandle, SW_SHOWDEFAULT);
-
-  if (Window->Errors.Len) {
-    fprintf(stderr, "There were %d errors during the creation of the window:\n", cast(int, Window->Errors.Len));
-    ItrNum (i, Window->Errors.Len)
-      fprintf(stderr, "  Error: %s.\n", Window->Errors.Mem[i]);
+  
+  if (Window->Errors.Len)
     Window->Finish = true;
-  }
-
   return Window;
 }
 function void WndEnd(window *Window) {
-  if (Window->Errors.Len)
-    return;
+  sys_specific_window *SysWnd = Window->SysWnd;
 
+  if (Window->GfxApiKind == gfx_api_None)
+    Todo();
+  else
   if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32EndWindowWithOpenGL(Window);
+    _Win32OpenGLWndEnd(Window);
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32EndWindowWithD3d11(Window);
+    _Win32D3d11WndEnd(Window);
   else
   if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32EndWindowWithVulkan(Window);
+    _Win32VulkanWndEnd(Window);
+  
+  ReleaseDC(SysWnd->WindowHandle, SysWnd->DeviceContext);
+
+  if (Window->Errors.Len) {
+    fprintf(stderr, "There were %d errors:\n", cast(int, Window->Errors.Len));
+    ItrNum (i, Window->Errors.Len)
+      fprintf(stderr, "  Error: %s.\n", Window->Errors.Mem[i]);
+  }
+  else
+    fprintf(stdout, "The program ended without any errors.\n");
+  
+  ArrayFree(&Window->Errors);
 }
 
+global u8 GlobalWin32ButtonTable[WINDOW_BUTTON_COUNT] = {
+  [VK_UP]    = button_Up,
+  [VK_DOWN]  = button_Down,
+  [VK_LEFT]  = button_Left,
+  [VK_RIGHT] = button_Right,
+
+  [VK_F1]  = button_F1,
+  [VK_F2]  = button_F2,
+  [VK_F3]  = button_F3,
+  [VK_F4]  = button_F4,
+  [VK_F5]  = button_F5,
+  [VK_F6]  = button_F6,
+  [VK_F7]  = button_F7,
+  [VK_F8]  = button_F8,
+  [VK_F9]  = button_F9,
+  [VK_F10] = button_F10,
+  [VK_F11] = button_F11,
+  [VK_F12] = button_F12,
+};
 function void WndBeginFrame(window *Window) {
   if (Window->Errors.Len)
     return;
@@ -1753,11 +1840,11 @@ function void WndBeginFrame(window *Window) {
   BYTE KeyboardState[WINDOW_BUTTON_COUNT];
   GetKeyboardState(KeyboardState);
   ItrNum (Key, WINDOW_BUTTON_COUNT)
-    UpdateButton(&Window->Buttons[Key], KeyboardState[Key] >> 7);
+    UpdateButton(&Window->Buttons[GlobalWin32ButtonTable[Key]], KeyboardState[Key] >> 7);
 
   // Fullscreen support.
   //.copy: From https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353.
-  if (Window->Buttons[VK_F11].Pressed) {
+  if (Window->Buttons[button_F11].Pressed) {
     DWORD Style = GetWindowLong(SysWnd->WindowHandle, GWL_STYLE);
     if (Style & WS_OVERLAPPEDWINDOW && GetWindowPlacement(SysWnd->WindowHandle, &SysWnd->WindowPosition) && GetMonitorInfo(MonitorFromWindow(SysWnd->WindowHandle, MONITOR_DEFAULTTOPRIMARY), &SysWnd->MonitorInfo)) {
       SetWindowLong(SysWnd->WindowHandle, GWL_STYLE, Style & ~WS_OVERLAPPEDWINDOW);
@@ -1779,27 +1866,33 @@ function void WndBeginFrame(window *Window) {
     }
   }
 
+  if (Window->GfxApiKind == gfx_api_None)
+    Todo();
+  else
   if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32BeginRenderingWithOpenGL(Window);
+    _Win32OpenGLBeginFrame(Window);
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32BeginRenderingWithD3d11(Window);
+    _Win32D3d11BeginFrame(Window);
   else
   if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32BeginRenderingWithVulkan(Window);
+    _Win32VulkanBeginFrame(Window);
 }
 function void WndEndFrame(window *Window) {
   if (Window->Errors.Len)
     return;
 
+  if (Window->GfxApiKind == gfx_api_None)
+    Todo();
+  else
   if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32EndRenderingWithOpenGL(Window);
+    _Win32OpenGLEndFrame(Window);
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32EndRenderingWithD3d11(Window);
+    _Win32D3d11EndFrame(Window);
   else
   if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32EndRenderingWithVulkan(Window);
+    _Win32VulkanEndFrame(Window);
 
   // Frame timing and frame-rate capping.
   Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
