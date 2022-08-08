@@ -18,8 +18,8 @@
 /**************************************************************************************************
   HEADER
 ***************************************************************************************************/
-#if !defined(FOUNDATION_HEADER)
-#define FOUNDATION_HEADER
+#if !defined(FOUNDATION_HEAD)
+#define FOUNDATION_HEAD
 
 ////////////////////////
 // CONTEXT CRACKING
@@ -405,6 +405,7 @@ typedef struct _pool {
 function pool *PoolReserve  (size cap);
 function void  PoolRelease  (pool *Pool);
 function void *PoolPush     (pool *Pool, size Size);
+function void *PoolPushZeros(pool *Pool, size Size);
 function void  PoolPopTo    (pool *Pool, size Pos);
 function void  PoolPopAmount(pool *Pool, size Amount);
 
@@ -557,6 +558,8 @@ function b32  SysDeleteDir (str8  Path);
 
 // These are the opengl functions to be loaded. All of them are supposed to be platform-agnostic.
 #define SELECTED_OPENGL_FUNCTIONS(Macro)                           \
+  Macro(PFNGLENABLEPROC,                  Enable)                  \
+  Macro(PFNGLBLENDFUNCSEPARATEPROC,       BlendFuncSeparate)       \
   Macro(PFNGLCLEARCOLORPROC,              ClearColor)              \
   Macro(PFNGLCLEARPROC,                   Clear)                   \
   Macro(PFNGLGENBUFFERSPROC,              GenBuffers)              \
@@ -580,7 +583,7 @@ function b32  SysDeleteDir (str8  Path);
   Macro(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray) \
   Macro(PFNGLGENVERTEXARRAYSPROC,         GenVertexArrays)         \
   Macro(PFNGLBINDVERTEXARRAYPROC,         BindVertexArray)         \
-  Macro(PFNGLDRAWELEMENTSPROC,            DrawElements)            \
+  Macro(PFNGLDRAWARRAYSPROC,              DrawArrays)              \
   Macro(PFNGLDELETEVERTEXARRAYSPROC,      DeleteVertexArrays)      \
   Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
   Macro(PFNGLDELETEPROGRAMPROC,           DeleteProgram)
@@ -652,6 +655,8 @@ typedef struct _window {
   r64          DesiredFps;
   b32          LostFrames;
   button       Buttons[WINDOW_BUTTON_COUNT];
+  i32v2        Pos;
+  i32v2        Dim;
 } window;
 
 //.note: For default width and height the default value is 0. For default x and y the default value is -1.
@@ -665,12 +670,12 @@ function void WndBeginRendering(window *Window);
 function void WndEndRendering  (window *Window);
 
 
-#endif//FOUNDATION_HEADER
+#endif//FOUNDATION_HEAD
 
 /**************************************************************************************************
   PLTFORM INDEPENDENT IMPLEMENTATION
 ***************************************************************************************************/
-#if defined(FOUNDATION_IMPLEMENTATION)
+#if defined(FOUNDATION_IMPL)
 
 ////////////////////////
 // MATH FUNCTIONS
@@ -909,6 +914,11 @@ function void *PoolPush(pool *Pool, size Size) {
     Pool->Pos += Size;
 	}
   Assert(Res != null, "Failed to push to pool.");
+  return Res;
+}
+function void *PoolPushZeros(pool *Pool, size Size) {
+  void *Res = PoolPush(Pool, Size);
+  memset(Res, 0, Size);
   return Res;
 }
 function void PoolPopTo(pool *Pool, size Pos) {
@@ -1286,6 +1296,9 @@ function file_properties SysGetFileProps(str8 Path) {
   if (GetFileAttributesExW(cast(WCHAR*, PathUtf16.Ptr), GetFileExInfoStandard, &Attributes)) {
     Todo();
   }
+
+  EndPoolSnapshot(Snap);
+
   return Res;
 }
 
@@ -1757,10 +1770,8 @@ function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
 }
 
 function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y) {
-  window              *Window = PoolPush(GlobalWin32Pool, sizeof(window));
-  sys_specific_window *SysWnd = PoolPush(GlobalWin32Pool, sizeof(sys_specific_window));
-  ZeroMemory(Window, sizeof(window));
-  ZeroMemory(SysWnd, sizeof(sys_specific_window));
+  window              *Window = PoolPushZeros(GlobalWin32Pool, sizeof(window));
+  sys_specific_window *SysWnd = PoolPushZeros(GlobalWin32Pool, sizeof(sys_specific_window));
   
   Window->SysWnd     = SysWnd;
   Window->GfxApiKind = GfxApiKind;
@@ -1845,7 +1856,8 @@ function void WndEnd(window *Window) {
   else
   if (Window->GfxApiKind == gfx_api_Vulkan)
     _Win32VulkanWndEnd(Window);
-  
+
+  ShowWindow(SysWnd->WindowHandle, SW_HIDE);
   ReleaseDC(SysWnd->WindowHandle, SysWnd->DeviceContext);
 
   if (Window->Errors.Len) {
@@ -1888,6 +1900,16 @@ function void WndBeginFrame(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
 
   SwitchToFiber(SysWnd->MessageFiber);
+
+  // Update window position and dimmensions.
+  RECT ClientRect;
+  GetClientRect(SysWnd->WindowHandle, &ClientRect);
+  Window->Dim.w = ClientRect.right  - ClientRect.left;
+  Window->Dim.h = ClientRect.bottom - ClientRect.top;
+  POINT WindowPos = {ClientRect.left, ClientRect.top};
+  ClientToScreen(SysWnd->WindowHandle, &WindowPos);
+  Window->Pos.x = WindowPos.x;
+  Window->Pos.y = WindowPos.y;
 
   // Update kyboard.
   BYTE KeyboardState[WINDOW_BUTTON_COUNT];
@@ -2010,4 +2032,4 @@ Todo();
 
 #endif
 
-#endif//FOUNDATION_IMPLEMENTATION
+#endif//FOUNDATION_IMPL
