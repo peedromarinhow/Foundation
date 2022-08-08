@@ -4,7 +4,9 @@
 
 /**************************************************************************************************
 
-  FOUNDATION FOR PROGRAMS
+  LAYER ZERO
+
+  FOUNDATION
 
 .doc:
   Todo().
@@ -103,7 +105,7 @@
 
 #define _Glue(x, y) x##y
 #define Glue(x, y) _Glue(x, y)
-#define ToStr(s) #s
+#define Stringify(s) #s
 #define UniqueId(Name) Glue(Name, __LINE__)
 #define Todo(s)
 
@@ -546,15 +548,45 @@ function b32  SysDeleteDir (str8  Path);
 
 ////////////////////////
 // OPENGL
-#define GL_COLOR_BUFFER_BIT 0x00004000
+#undef function
+//.link: https://gist.github.com/mmozeiko/ed2ad27f75edf9c26053ce332a1f6647.
+// Also download https://www.khronos.org/registry/EGL/api/KHR/khrplatform.h and put in "KHR" folder.
+#include "download/glcorearb.h" //.link: https://www.khronos.org/registry/OpenGL/api/GL/glcorearb.h
+#include "download/glext.h"     //.link: https://www.khronos.org/registry/OpenGL/api/GL/glext.h
+#define function static
 
 // These are the opengl functions to be loaded. All of them are supposed to be platform-agnostic.
-#define SELECTED_OPENGL_FUNCTIONS(Macro)                                \
-  Macro(void, (r32 r, r32 g, r32 b, r32 a), ClearColor, "glClearColor") \
-  Macro(void, (u32 mask),                   Clear,      "glClear")      \
+#define SELECTED_OPENGL_FUNCTIONS(Macro)                           \
+  Macro(PFNGLCLEARCOLORPROC,              ClearColor)              \
+  Macro(PFNGLCLEARPROC,                   Clear)                   \
+  Macro(PFNGLGENBUFFERSPROC,              GenBuffers)              \
+  Macro(PFNGLBINDBUFFERPROC,              BindBuffer)              \
+  Macro(PFNGLBUFFERDATAPROC,              BufferData)              \
+  Macro(PFNGLCREATESHADERPROC,            CreateShader)            \
+  Macro(PFNGLSHADERSOURCEPROC,            ShaderSource)            \
+  Macro(PFNGLCOMPILESHADERPROC,           CompileShader)           \
+  Macro(PFNGLGETSHADERIVPROC,             GetShaderiv)             \
+  Macro(PFNGLGETSHADERINFOLOGPROC,        GetShaderInfoLog)        \
+  Macro(PFNGLCREATEPROGRAMPROC,           CreateProgram)           \
+  Macro(PFNGLATTACHSHADERPROC,            AttachShader)            \
+  Macro(PFNGLLINKPROGRAMPROC,             LinkProgram)             \
+  Macro(PFNGLGETPROGRAMIVPROC,            GetProgramiv)            \
+  Macro(PFNGLGETPROGRAMINFOLOGPROC,       GetProgramInfoLog)       \
+  Macro(PFNGLUSEPROGRAMPROC,              UseProgram)              \
+  Macro(PFNGLGETUNIFORMLOCATIONPROC,      GetUniformLocation)      \
+  Macro(PFNGLUNIFORM4FPROC,               Uniform4f)               \
+  Macro(PFNGLDELETESHADERPROC,            DeleteShader)            \
+  Macro(PFNGLVERTEXATTRIBPOINTERPROC,     VertexAttribPointer)     \
+  Macro(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray) \
+  Macro(PFNGLGENVERTEXARRAYSPROC,         GenVertexArrays)         \
+  Macro(PFNGLBINDVERTEXARRAYPROC,         BindVertexArray)         \
+  Macro(PFNGLDRAWELEMENTSPROC,            DrawElements)            \
+  Macro(PFNGLDELETEVERTEXARRAYSPROC,      DeleteVertexArrays)      \
+  Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
+  Macro(PFNGLDELETEPROGRAMPROC,           DeleteProgram)
 
 typedef struct _opengl_api {
-  #define Decl(type, args, Name, Str) type (*Name) args;
+  #define Decl(type, Name) type Name;
     SELECTED_OPENGL_FUNCTIONS(Decl)
   #undef Decl
 } opengl_api;
@@ -575,7 +607,9 @@ typedef struct _vulkan_api {
 // WINDOW INTERFACE
 #define WINDOW_BUTTON_COUNT 256
 enum _buttons {
-  button_Up = 1,
+  button_None,
+
+  button_Up,
   button_Down,
   button_Left,
   button_Right,
@@ -626,6 +660,9 @@ function void    WndEnd(window *Window);
 
 function void WndBeginFrame(window *Window);
 function void WndEndFrame  (window *Window);
+
+function void WndBeginRendering(window *Window);
+function void WndEndRendering  (window *Window);
 
 
 #endif//FOUNDATION_HEADER
@@ -927,6 +964,7 @@ Todo();
 
 ////////////////////////
 // STRINGS
+//.link: (adapted from) https://github.com/Mr-4th-Programming/mr4th/blob/main/src/base/base_string.cpp.
 inline str8 Str8(c8 *Ptr, size Len) {
 	str8 Res = {Ptr, Len};
 	return Res;
@@ -1084,8 +1122,23 @@ function str8 ConvertStr32ToStr8(pool *Pool, str32 Str) {
 }
 function str16 ConvertStr8ToStr16(pool *Pool, str8 Str) {
   str16 Res = {0};
-  Todo();
-  return Res;
+
+  c16 *Mem = PoolPush(Pool, sizeof(c16)*Str.Len*2 + 1);
+  c16 *Dst = Mem;
+  c8  *Ptr = Str.Ptr;
+  c8  *End = Str.Ptr + Str.Len;
+  while (Ptr < End){
+    utf_char Decoded = DecodeUtf8(Ptr, cast(u32, End - Ptr));
+    u32      EncSize = EncodeUtf16(Dst, Decoded.Code);
+    Ptr += Decoded.Size;
+    Dst += EncSize;
+  }
+ *Dst = 0;
+  size Len = (size)(Dst - Mem);
+  PoolPopAmount(Pool, (Str.Len*2 - Len)*sizeof(*Mem)); // Pop unused amount.
+  Res.Len = Len;
+  Res.Ptr = Mem;
+	return Res;
 }
 function str8 ConvertStr16ToStr8(pool *Pool, str16 Str) {
   str8 Res = {0};
@@ -1562,10 +1615,10 @@ function void _Win32OpenGLWndInit(window *Window) {
 
   // Create opengl api.
   opengl_api *Api = PoolPush(GlobalWin32Pool, sizeof(opengl_api));
-  #define Assign(type, args, Name, Str)                                                                     \
-    Api->Name = cast(type(*)args, _Win32OpenGLGetAnyFuncAddress(WglGetProcAddressProc, OpenGLModule, Str)); \
-    if (!Api->Name)                                                                                         \
-      ArrayAdd(&Window->Errors, "(opengl startup) could not load \"" Str "\"");
+  #define Assign(type, Name)                                                                                         \
+    Api->Name = cast(type, _Win32OpenGLGetAnyFuncAddress(WglGetProcAddressProc, OpenGLModule, Stringify(gl##Name))); \
+    if (!Api->Name)                                                                                                  \
+      ArrayAdd(&Window->Errors, "(opengl startup) could not load \"" Stringify(gl##Name) "\"");
     SELECTED_OPENGL_FUNCTIONS(Assign)
   #undef Assign
 
@@ -1666,9 +1719,8 @@ function void _Win32VulkanEndFrame(window *Window) {
   Todo();
 }
 
-
 ////////////////////////
-// WRAPPING
+// SYSTEM WINDOW WRAPPING
 function LRESULT CALLBACK _Win32WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
   LRESULT Result = 0;
   window *Window = cast(window*, GetWindowLongPtr(WindowHandle, GWLP_USERDATA));
@@ -1865,6 +1917,20 @@ function void WndBeginFrame(window *Window) {
       );
     }
   }
+}
+function void WndEndFrame(window *Window) {
+  // Frame timing and frame-rate capping.
+  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
+  r32 TimeToSleep = (1.0f/Window->DesiredFps - Window->FrameDelta);
+  if (TimeToSleep > 0) 
+    Sleep(TimeToSleep*Thousand(1));
+  else
+    Window->LostFrames = true;
+}
+
+function void WndBeginRendering(window *Window) {
+  if (Window->Errors.Len)
+    return;
 
   if (Window->GfxApiKind == gfx_api_None)
     Todo();
@@ -1878,7 +1944,7 @@ function void WndBeginFrame(window *Window) {
   if (Window->GfxApiKind == gfx_api_Vulkan)
     _Win32VulkanBeginFrame(Window);
 }
-function void WndEndFrame(window *Window) {
+function void WndEndRendering(window *Window) {
   if (Window->Errors.Len)
     return;
 
@@ -1893,19 +1959,49 @@ function void WndEndFrame(window *Window) {
   else
   if (Window->GfxApiKind == gfx_api_Vulkan)
     _Win32VulkanEndFrame(Window);
-
-  // Frame timing and frame-rate capping.
-  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
-  r32 TimeToSleep = (1.0f/Window->DesiredFps - Window->FrameDelta);
-  if (TimeToSleep > 0) 
-    Sleep(TimeToSleep*Thousand(1));
-  else
-    Window->LostFrames = true;
 }
 
 #elif defined(OS_LNX)
 
-Todo();
+////////////////////////
+// SETUP
+function b32  SysInit(i32 Argc, c8 **Argv);
+function void SysEnd(void);
+function void SysAbort(i32 Code);
+
+////////////////////////
+// MEMORY
+function byte *SysMemReserve(size Size, u32 Flags);
+function void  SysMemRelease(void *Ptr, size Size);
+
+////////////////////////
+// TIME
+function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
+function void SysSleep(u32 Milliseconds);
+
+////////////////////////
+// FILES
+function file_properties SysGetFileProps(str8 Path);
+function str8 SysOpenFile  (pool *Pool,  str8 Path);
+function b32  SysSaveFile  (str8  Data,  str8 Path);
+function b32  SysRenameFile(str8  Old,   str8 New);
+function b32  SysDeleteFile(str8  Path);
+function b32  SysCreateDir (str8  Path);
+function b32  SysDeleteDir (str8  Path);
+
+////////////////////////
+// SYSTEM WINDOW
+struct _sys_specific_window {
+  void *GfxCtx;
+};
+
+////////////////////////
+// SYSTEM WINDOW WRAPPING
+function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y);
+function void    WndEnd(window *Window);
+
+function void WndBeginRendering(window *Window);
+function void WndEndRendering  (window *Window);
 
 #elif defined(OS_MAC)
 
