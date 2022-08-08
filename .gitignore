@@ -1,5 +1,4 @@
 build*/
-download*/
 *.exe
 *.obj
 *.pdb

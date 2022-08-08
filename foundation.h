@@ -1630,6 +1630,7 @@ function void _Win32OpenGLWndInit(window *Window) {
 function void _Win32OpenGLWndEnd(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
   opengl_ctx *Ctx = cast(opengl_ctx*, SysWnd->GfxCtx);
+  Ctx->MakeCurrent(SysWnd->DeviceContext, 0);
   if (!Window->Errors.Len)
     Ctx->DeleteContext(Ctx->Hglrc);
 }
