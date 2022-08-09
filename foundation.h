@@ -601,12 +601,6 @@ typedef struct _d3d11_api {
 } d3d11_api;
 
 ////////////////////////
-// VULKAN
-typedef struct _vulkan_api {
-  int Tmp;
-} vulkan_api;
-
-////////////////////////
 // WINDOW INTERFACE
 #define WINDOW_BUTTON_COUNT 256
 enum _buttons {
@@ -639,10 +633,9 @@ inline function void UpdateButton(button *Button, b32 IsDown);
 
 typedef struct _sys_specific_window sys_specific_window;
 typedef enum _gfx_api_kind {
-  gfx_api_None,
+  gfx_api_None, //.todo: Add software renderer.
   gfx_api_Opengl,
   gfx_api_D3d11,
-  gfx_api_Vulkan,
 } gfx_api_kind;
 typedef struct _window {
   sys_specific_window *SysWnd;
@@ -1705,35 +1698,6 @@ function void _Win32D3d11EndFrame(window *Window) {
 }
 
 ////////////////////////
-// VULKAN
-#undef function
-// #define VK_USE_PLATFORM_WIN32_KHR
-// #include "vulkan/vulkan.h"
-#define function static
-
-typedef struct _vulkan_ctx {
-  int Tmp;
-} vulkan_ctx;
-
-function void _Win32VulkanWndInit(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  Todo();
-}
-function void _Win32VulkanWndEnd(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  Todo();
-}
-
-function void _Win32VulkanBeginFrame(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  Todo();
-}
-function void _Win32VulkanEndFrame(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  Todo();
-}
-
-////////////////////////
 // SYSTEM WINDOW WRAPPING
 function LRESULT CALLBACK _Win32WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
   LRESULT Result = 0;
@@ -1830,9 +1794,6 @@ function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y) {
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
     _Win32D3d11WndInit(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32VulkanWndInit(Window);
 
   // Show window.
   if (!Window->Errors.Len)
@@ -1853,9 +1814,6 @@ function void WndEnd(window *Window) {
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
     _Win32D3d11WndEnd(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32VulkanWndEnd(Window);
 
   ShowWindow(SysWnd->WindowHandle, SW_HIDE);
   ReleaseDC(SysWnd->WindowHandle, SysWnd->DeviceContext);
@@ -1963,9 +1921,6 @@ function void WndBeginRendering(window *Window) {
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
     _Win32D3d11BeginFrame(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32VulkanBeginFrame(Window);
 }
 function void WndEndRendering(window *Window) {
   if (Window->Errors.Len)
@@ -1979,9 +1934,6 @@ function void WndEndRendering(window *Window) {
   else
   if (Window->GfxApiKind == gfx_api_D3d11)
     _Win32D3d11EndFrame(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_Vulkan)
-    _Win32VulkanEndFrame(Window);
 }
 
 #elif defined(OS_LNX)
