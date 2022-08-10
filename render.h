@@ -23,7 +23,7 @@ typedef struct _renderer {
   window *Wnd;
   size    VertsLen;
   size    VertsCap;
-  r32    *Verts;
+  r32v2  *Verts;
 
   void *Back;
 } renderer;
@@ -134,17 +134,17 @@ function void _OpenGLRenInit(pool *Pool, renderer *Renderer) {
   Gl->DeleteShader(VertShader);
   Gl->DeleteShader(FragShader);
 
-  // Create vertex buffer.
-  Gl->GenBuffers(1, &Back->VertsBuff);
-  Gl->BindBuffer(GL_ARRAY_BUFFER, Back->VertsBuff);
-  Gl->BufferData(GL_ARRAY_BUFFER, Renderer->VertsCap*sizeof(r32), Renderer->Verts, GL_STATIC_DRAW);
-
   // Create vertex array.
   Gl->GenVertexArrays(1, &Back->VertsArray);
   Gl->BindVertexArray(Back->VertsArray);
-  Gl->EnableVertexAttribArray(0);
+
+  // Create vertex buffer.
+  Gl->GenBuffers(1, &Back->VertsBuff);
   Gl->BindBuffer(GL_ARRAY_BUFFER, Back->VertsBuff);
-  Gl->VertexAttribPointer(0, 3, GL_FLOAT, false, 0, null);
+  Gl->BufferData(GL_ARRAY_BUFFER, Renderer->VertsCap*sizeof(r32), Renderer->Verts, GL_DYNAMIC_DRAW);
+
+  Gl->EnableVertexAttribArray(0);
+  Gl->VertexAttribPointer(0, 2, GL_FLOAT, false, 0, null);
 
   Renderer->Back = Back;
 }
@@ -152,27 +152,23 @@ function void _OpenGLRenEnd(renderer *Renderer) {
   opengl_api      *Gl   = cast(opengl_api*, Renderer->Wnd->GfxApi);
   opengl_renderer *Back = cast(opengl_renderer*, Renderer->Back);
 
-  // Arrays and buffers.
   Gl->DeleteVertexArrays(1, &Back->VertsArray);
   Gl->DeleteBuffers     (1, &Back->VertsBuff);
-
-  // Delete program.
-  Gl->DeleteProgram(Back->ShaderProgram);
+  Gl->DeleteProgram     (Back->ShaderProgram);
 }
 
 function void _OpenGLRenDraw(renderer *Renderer) {
   opengl_api      *Gl   = cast(opengl_api*, Renderer->Wnd->GfxApi);
   opengl_renderer *Back = cast(opengl_renderer*, Renderer->Back);
 
-  // Clear.
+  Gl->Viewport(0, 0, Renderer->Wnd->Dim.w, Renderer->Wnd->Dim.h);
   Gl->ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
   Gl->Clear(GL_COLOR_BUFFER_BIT);
 
-  // Draw the rectangle.
   Gl->UseProgram(Back->ShaderProgram);
   Gl->Uniform4f(Gl->GetUniformLocation(Back->ShaderProgram, "Color"), 1.0f, 0.5f, 0.2f, 1.0f);
-  Gl->BindVertexArray(Back->VertsArray);
-  Gl->DrawArrays(GL_TRIANGLES, 0, Renderer->VertsLen/3);
+  Gl->BufferSubData(GL_ARRAY_BUFFER, 0, sizeof(r32v2)*Renderer->VertsLen, Renderer->Verts);
+  Gl->DrawArraysInstanced(GL_TRIANGLES, 0, cast(u32, Renderer->VertsLen), 1);
 }
 
 ////////////////////////
@@ -203,19 +199,16 @@ function void _D3d11RenDraw(renderer *Renderer) {
 
 ////////////////////////
 // RENDERER WRAPPING
+function void RenPushVert(renderer *Renderer, r32v2 v) {
+  Assert(Renderer->VertsLen < Renderer->VertsCap);
+  Renderer->Verts[Renderer->VertsLen++] = v;
+}
+
 function renderer *RenInit(pool *Pool, window *Window) {
   renderer *Renderer  = PoolPushZeros(Pool, sizeof(renderer));
   Renderer->Wnd       = Window;
   Renderer->VertsCap  = 3*32;
-  Renderer->Verts     = PoolPush(Pool, Renderer->VertsCap*sizeof(r32));
-  Renderer->VertsLen = 0;
-  r32 Verts[] = {
-    0.0f,  0.5f,  0.0f,
-    0.5f, -0.5f,  0.0f,
-   -0.5f, -0.5f,  0.0f,
-  };
-  ItrNum (i, countof(Verts))
-    Renderer->Verts[Renderer->VertsLen++] = Verts[i];
+  Renderer->Verts     = PoolPush(Pool, Renderer->VertsCap*sizeof(r32v2));
 
   if (Window->GfxApiKind == gfx_api_None)
     Todo();
@@ -248,6 +241,8 @@ function void RenDraw(renderer *Renderer) {
   else
   if (Renderer->Wnd->GfxApiKind == gfx_api_D3d11)
     _D3d11RenDraw(Renderer);
+  
+  Renderer->VertsLen = 0;
 }
 
 #endif//RENDER_IMPL

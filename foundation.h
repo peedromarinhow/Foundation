@@ -439,7 +439,24 @@ function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem);
 
 ////////////////////////
 // HASH TABLE
-Todo();
+typedef struct _table_entry {
+  void *Key;
+  void *Val;
+} table_entry;
+
+#define table(type) struct { size Cap, Len; table_entry *Mem; type Tmp; type *Ptr; }
+
+function b32   _TableMake(size *Cap, size *Len, table_entry **Mem, size Itm, size InitCap);
+function void  _TableFree(size *Cap, size *Len, table_entry **Mem, size Itm);
+function b32   _TableGrow(size *Cap, size *Len, table_entry **Mem, size Itm);
+function b32   _TableAdd (size *Cap, size *Len, table_entry **Mem, size Itm, void *Key, void *Val);
+function void *_TableGet (size *Cap, size *Len, table_entry **Mem, size Itm, void *Key);
+
+#define _TableExp(Table) &(Table)->Cap, &(Table)->Len, &(Table)->Mem, sizeof((Table)->Tmp)
+#define  TableMake(Table, Len) _TableMake(_TableExp(Table), (Len))
+#define  TableFree(Table) _TableFree(_TableExp(Table))
+#define  TableAdd(Table, Key, Val) (Table)->Tmp = Val, _TableAdd(_TableExp(Table), Key, &(Table)->Tmp)
+#define  TableGet(Table, Key)      (Table)->Ptr =      _TableGet(_TableExp(Table), Key)
 
 ////////////////////////
 // STRINGS
@@ -560,9 +577,11 @@ function b32  SysDeleteDir (str8  Path);
 #define SELECTED_OPENGL_FUNCTIONS(Macro)                           \
   Macro(PFNGLENABLEPROC,                  Enable)                  \
   Macro(PFNGLBLENDFUNCSEPARATEPROC,       BlendFuncSeparate)       \
+  Macro(PFNGLVIEWPORTPROC,                Viewport)                \
   Macro(PFNGLCLEARCOLORPROC,              ClearColor)              \
   Macro(PFNGLCLEARPROC,                   Clear)                   \
   Macro(PFNGLGENBUFFERSPROC,              GenBuffers)              \
+  Macro(PFNGLBUFFERSUBDATAPROC,           BufferSubData)           \
   Macro(PFNGLBINDBUFFERPROC,              BindBuffer)              \
   Macro(PFNGLBUFFERDATAPROC,              BufferData)              \
   Macro(PFNGLCREATESHADERPROC,            CreateShader)            \
@@ -584,6 +603,7 @@ function b32  SysDeleteDir (str8  Path);
   Macro(PFNGLGENVERTEXARRAYSPROC,         GenVertexArrays)         \
   Macro(PFNGLBINDVERTEXARRAYPROC,         BindVertexArray)         \
   Macro(PFNGLDRAWARRAYSPROC,              DrawArrays)              \
+  Macro(PFNGLDRAWARRAYSINSTANCEDPROC,     DrawArraysInstanced)     \
   Macro(PFNGLDELETEVERTEXARRAYSPROC,      DeleteVertexArrays)      \
   Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
   Macro(PFNGLDELETEPROGRAMPROC,           DeleteProgram)
@@ -963,7 +983,100 @@ function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem) {
 
 ////////////////////////
 // HASH TABLE
-Todo();
+//.link: https://github.com/rxi/map/tree/master/src
+//.link: https://github.com/pervognsen/bitwise/
+function u64 _U64Hash(u64 x) {
+  x *= 0xff51afd7ed558ccdull;
+  x ^= x >> 32;
+  return x;
+}
+function b32 _TableMake(size *Cap, size *Len, table_entry **Mem, size Itm, size InitCap) {
+  *Mem = cast(table_entry*, SysMemReserve(InitCap*sizeof(table_entry), 0));
+  *Cap = InitCap;
+  *Len = 0;
+  if (*Mem == null)
+    return false;
+  return true;
+}
+function void _TableFree(size *Cap, size *Len, table_entry **Mem, size Itm) {
+  ItrNum (i, *Cap) {
+    table_entry *Ent = *Mem + i;
+    if (Ent->Key)
+      SysMemRelease(Ent->Val, Itm);
+  }
+  SysMemRelease(*Mem, (*Cap)*sizeof(table_entry));
+
+ *Cap = 0;
+ *Len = 0;
+ *Mem = null;
+}
+
+function b32 _TableGrow(size *Cap, size *Len, table_entry **Mem, size Itm) {
+  size         OldCap = *Cap;
+  size         OldLen = *Len;
+  table_entry *OldMem = *Mem;
+
+ *Cap = Max(2*(*Cap), 16);
+ *Len = 0;
+ *Mem = cast(table_entry*, SysMemReserve((*Cap)*sizeof(table_entry), 0));
+  if (*Mem == null)
+    return false;
+
+  ItrNum (i, OldCap) {
+    table_entry *Ent = OldMem + i;
+    if (Ent->Key)
+      if (!_TableAdd(Cap, Len, Mem, Itm, Ent->Key, Ent->Val))
+        return false;
+  }
+  SysMemRelease(OldMem, Itm*OldCap);
+
+  return true;
+}
+function b32 _TableAdd(size *Cap, size *Len, table_entry **Mem, size Itm, void *Key, void *Val) {
+  Assert(Key);
+  if (2*(*Len) >= *Cap) {
+    if (!_TableGrow(Cap, Len, Mem, Itm))
+      return false;
+  }
+  Assert(2*(*Len) < *Cap);
+  u64 i = _U64Hash(cast(u64, Key));
+  while (true) {
+    i &= *Cap - 1;
+    table_entry *Ent = *Mem + i;
+    if (Ent->Key == Key) {
+      memcpy(Ent->Val, Val, Itm);
+      return true;
+    }
+    else
+    if (!Ent->Key) {
+     *Len += 1;
+      Ent->Key = Key;
+      Ent->Val = SysMemReserve(Itm, 0);
+      memcpy(Ent->Val, Val, Itm);
+      return true;
+    }
+    i++;
+  }
+  return false;
+}
+function void *_TableGet(size *Cap, size *Len, table_entry **Mem, size Itm, void *Key) {
+  if (*Len == 0)
+    return null;
+  Assert(IsPowerOf2(*Cap));
+  Assert(*Len < *Cap);
+  u64 i = _U64Hash(cast(u64, Key));
+  while (true) {
+    i &= *Cap - 1;
+    table_entry *Ent = *Mem + i;
+    if (Ent->Key == Key)
+      return Ent->Val;
+    else
+    if (!Ent->Key)
+      return null;
+    i++;
+  }
+  return null;
+}
 
 ////////////////////////
 // STRINGS

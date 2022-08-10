@@ -18,7 +18,13 @@ int main(int Argc, char **Argv) {
   while (!Wnd->Finish) {
     WndBeginFrame(Wnd);
     WndBeginRendering(Wnd);
+  
+    RenPushVert(Ren, R32v2(-0.5f,  0.5f));
+    RenPushVert(Ren, R32v2( 0.5f,  0.5f));
+    RenPushVert(Ren, R32v2( 0.5f, -0.5f));
+
     RenDraw(Ren);
+
     WndEndRendering(Wnd);
     WndEndFrame(Wnd);
   }
