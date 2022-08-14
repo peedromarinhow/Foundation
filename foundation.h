@@ -177,19 +177,6 @@
 typedef unsigned long long size;
 typedef unsigned char      byte;
 
-typedef unsigned char          u8;
-typedef unsigned short         u16;
-typedef unsigned int           u32;
-typedef unsigned long long int u64;
-StaticAssert(sizeof(u8)  == 1);
-StaticAssert(sizeof(u16) == 2);
-StaticAssert(sizeof(u32) == 4);
-StaticAssert(sizeof(u64) == 8);
-#define u8Max  0xFF
-#define u16Max 0xFFFF
-#define u32Max 0xFFFFFFFF
-#define u64Max 0xFFFFFFFFFFFFFFFFllu
-
 typedef signed char   i8;
 typedef short         i16;
 typedef int           i32;
@@ -206,6 +193,19 @@ StaticAssert(sizeof(i64) == 8);
 #define i16Max (i16)0x7FFF
 #define i32Max (i32)0x7FFFFFFF
 #define i64Max (i64)0x7FFFFFFFFFFFFFFFllu
+
+typedef unsigned char          u8;
+typedef unsigned short         u16;
+typedef unsigned int           u32;
+typedef unsigned long long int u64;
+StaticAssert(sizeof(u8)  == 1);
+StaticAssert(sizeof(u16) == 2);
+StaticAssert(sizeof(u32) == 4);
+StaticAssert(sizeof(u64) == 8);
+#define u8Max  0xFF
+#define u16Max 0xFFFF
+#define u32Max 0xFFFFFFFF
+#define u64Max 0xFFFFFFFFFFFFFFFFllu
 
 typedef char           c8;
 typedef unsigned short c16;
@@ -392,12 +392,7 @@ inline r32v2 R32r2Mid(r32r2 r);
 
 ////////////////////////
 // MEMORY
-enum _mem_flags {
-  mem_Unaccessible = Flag(0),
-  mem_Readonly     = Flag(1),
-  mem_Runnable     = Flag(2),
-};
-
+#define POOL_INIT_CAP Gb(1)
 typedef struct _pool {
 	size Cap;
 	size Pos;
@@ -419,7 +414,6 @@ function void      EndPoolSnapshot(pool_snap Snap);
 ////////////////////////
 // DYNAMIC ARRAY
 #define ARRAY_INIT_CAP 16
-
 #define array(type) struct { size Cap, Len; type *Mem; }
 
 function b32 _ArrayMake(size *Cap, size *Len, size Itm, void **Mem, size InitCap);
@@ -428,7 +422,7 @@ function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem);
 #define _ArrayExp(Array) &(Array)->Cap, &(Array)->Len, sizeof(*(Array)->Mem), cast(void**, &(Array)->Mem) 
 #define  ArrayMake(Array, Len) _ArrayMake(_ArrayExp(Array), (Len))
 #define  ArrayFree(Array) SysMemRelease((Array)->Mem, (Array)->Cap*sizeof(*(Array)->Mem)), (Array)->Cap = 0, (Array)->Len = 0, (Array)->Mem = null
-#define  ArrayAdd(Array, x) (       \
+#define  ArrayAdd(Array, x) (        \
   ((Array)->Cap < (Array)->Len + 1)? \
     _ArrayGrow(_ArrayExp(Array))     \
   :                                  \
@@ -439,24 +433,24 @@ function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem);
 
 ////////////////////////
 // HASH TABLE
-typedef struct _table_entry {
-  void *Key;
-  void *Val;
-} table_entry;
+//.link: https://youtu.be/k9MBMvR2IvI;
+//.link: https://github.com/pervognsen/bitwise.
+//.link: https://github.com/rxi/map.
+#define TABLE_MIN_CAP  16
+#define TABLE_MAX_LOAD 70
+#define table(type) struct { size Cap, Len; u64 *Keys; byte *Vals; type Tmp; type *Ptr; }
 
-#define table(type) struct { size Cap, Len; table_entry *Mem; type Tmp; type *Ptr; }
+function b32   _TableMake(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size InitCap);
+function void  _TableFree(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm);
+function b32   _TableGrow(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size NewCap);
+function void *_TableAdd (size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, u64 Key, void *Val);
+function void *_TableGet (size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, u64 Key);
 
-function b32   _TableMake(size *Cap, size *Len, table_entry **Mem, size Itm, size InitCap);
-function void  _TableFree(size *Cap, size *Len, table_entry **Mem, size Itm);
-function b32   _TableGrow(size *Cap, size *Len, table_entry **Mem, size Itm);
-function b32   _TableAdd (size *Cap, size *Len, table_entry **Mem, size Itm, void *Key, void *Val);
-function void *_TableGet (size *Cap, size *Len, table_entry **Mem, size Itm, void *Key);
-
-#define _TableExp(Table) &(Table)->Cap, &(Table)->Len, &(Table)->Mem, sizeof((Table)->Tmp)
-#define  TableMake(Table, Len) _TableMake(_TableExp(Table), (Len))
-#define  TableFree(Table) _TableFree(_TableExp(Table))
-#define  TableAdd(Table, Key, Val) (Table)->Tmp = Val, _TableAdd(_TableExp(Table), Key, &(Table)->Tmp)
-#define  TableGet(Table, Key)      (Table)->Ptr =      _TableGet(_TableExp(Table), Key)
+#define _TableExp(Table) &(Table)->Cap, &(Table)->Len, &(Table)->Keys, &(Table)->Vals, sizeof((Table)->Tmp)
+#define  TableMake(Table, Len)                         _TableMake(_TableExp(Table), (Len))
+#define  TableFree(Table)                              _TableFree(_TableExp(Table))
+#define  TableAdd(Table, Key, Val) (Table)->Tmp = Val, _TableAdd (_TableExp(Table), cast(u64, Key), &(Table)->Tmp)
+#define  TableGet(Table, Key)    *((Table)->Ptr =      _TableGet (_TableExp(Table), cast(u64, Key)))
 
 ////////////////////////
 // STRINGS
@@ -550,6 +544,11 @@ function b32  SysInit(i32 Argc, c8 **Argv);
 function void SysEnd(void);
 function void SysAbort(i32 Code);
 
+enum _mem_flags {
+  mem_Unaccessible = Flag(0),
+  mem_Readonly     = Flag(1),
+  mem_Runnable     = Flag(2),
+};
 function byte *SysMemReserve(size Size, u32 Flags);
 function void  SysMemRelease(void *Ptr, size Size);
 
@@ -909,7 +908,7 @@ inline r32v2 R32r2Mid(r32r2 r) { return R32v2(R2MidComps(r)); }
 // MEMORY
 function pool *PoolReserve(size Cap) {
   if (Cap == 0)
-    Cap = Gb(1);
+    Cap = POOL_INIT_CAP;
   byte *Mem = SysMemReserve(Cap, 0);
   pool *Res = cast(pool*, Mem);
   Res->Cap = Cap;
@@ -990,91 +989,84 @@ function u64 _U64Hash(u64 x) {
   x ^= x >> 32;
   return x;
 }
-function b32 _TableMake(size *Cap, size *Len, table_entry **Mem, size Itm, size InitCap) {
-  *Mem = cast(table_entry*, SysMemReserve(InitCap*sizeof(table_entry), 0));
-  *Cap = InitCap;
-  *Len = 0;
-  if (*Mem == null)
+function b32 _TableMake(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size InitCap) {
+  *Keys = cast(u64*, SysMemReserve(InitCap*sizeof(void*), 0));
+  *Vals = SysMemReserve(InitCap*Itm, 0);
+  *Cap  = InitCap;
+  *Len  = 0;
+  if (*Keys == null || *Vals == null)
     return false;
   return true;
 }
-function void _TableFree(size *Cap, size *Len, table_entry **Mem, size Itm) {
-  ItrNum (i, *Cap) {
-    table_entry *Ent = *Mem + i;
-    if (Ent->Key)
-      SysMemRelease(Ent->Val, Itm);
-  }
-  SysMemRelease(*Mem, (*Cap)*sizeof(table_entry));
+function void _TableFree(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm) {
+  SysMemRelease(*Keys, (*Cap)*sizeof(u64));
+  SysMemRelease(*Vals, (*Cap)*Itm);
 
- *Cap = 0;
- *Len = 0;
- *Mem = null;
+  *Cap  = 0;
+  *Len  = 0;
+  *Keys = null;
+  *Vals = null;
 }
 
-function b32 _TableGrow(size *Cap, size *Len, table_entry **Mem, size Itm) {
-  size         OldCap = *Cap;
-  size         OldLen = *Len;
-  table_entry *OldMem = *Mem;
+function b32 _TableGrow(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size NewCap) { // This is not working.
+  size  OldCap  = *Cap;
+  size  OldLen  = *Len;
+  u64  *OldKeys = *Keys;
+  byte *OldVals = *Vals;
 
- *Cap = Max(2*(*Cap), 16);
- *Len = 0;
- *Mem = cast(table_entry*, SysMemReserve((*Cap)*sizeof(table_entry), 0));
-  if (*Mem == null)
+  *Cap  = Max(NewCap, TABLE_MIN_CAP);
+  *Keys = cast(u64*, SysMemReserve((*Cap)*sizeof(void*), 0));
+  *Vals = SysMemReserve(*Cap*Itm, 0);
+  if (*Keys == null || *Vals == null)
     return false;
+  
+  if (OldKeys)
+    memcpy(*Keys, OldKeys, (*Len)*sizeof(void*));
+  if (OldVals)
+    memcpy(*Vals, OldVals, (*Len)*Itm);
 
-  ItrNum (i, OldCap) {
-    table_entry *Ent = OldMem + i;
-    if (Ent->Key)
-      if (!_TableAdd(Cap, Len, Mem, Itm, Ent->Key, Ent->Val))
-        return false;
-  }
-  SysMemRelease(OldMem, Itm*OldCap);
+  SysMemRelease(OldKeys, OldCap*sizeof(u64));
+  SysMemRelease(OldVals, OldCap*Itm);
 
   return true;
 }
-function b32 _TableAdd(size *Cap, size *Len, table_entry **Mem, size Itm, void *Key, void *Val) {
+function void *_TableAdd(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, u64 Key, void *Val) {
   Assert(Key);
-  if (2*(*Len) >= *Cap) {
-    if (!_TableGrow(Cap, Len, Mem, Itm))
+  if (((*Len) + 1)*100 >= (*Cap)*TABLE_MAX_LOAD) {
+    if (!_TableGrow(Cap, Len, Keys, Vals, Itm, 2*(*Cap)))
       return false;
   }
-  Assert(2*(*Len) < *Cap);
-  u64 i = _U64Hash(cast(u64, Key));
-  while (true) {
-    i &= *Cap - 1;
-    table_entry *Ent = *Mem + i;
-    if (Ent->Key == Key) {
-      memcpy(Ent->Val, Val, Itm);
-      return true;
-    }
-    else
-    if (!Ent->Key) {
-     *Len += 1;
-      Ent->Key = Key;
-      Ent->Val = SysMemReserve(Itm, 0);
-      memcpy(Ent->Val, Val, Itm);
-      return true;
-    }
-    i++;
+
+  u64 Index = _U64Hash(Key) & *Cap - 1;
+  u32 Probe = 1;
+  while ((*Keys)[Index]) {
+    Index += Probe;
+    Probe += 1;
+    while (Index >= *Cap)
+      Index -= *Cap;
   }
-  return false;
+
+  *Len += 1;
+  (*Keys)[Index] = Key;
+  memcpy(*Vals + Index*Itm, Val, Itm);
+
+  return *Vals + Index*Itm;
 }
-function void *_TableGet(size *Cap, size *Len, table_entry **Mem, size Itm, void *Key) {
+function void *_TableGet(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, u64 Key) {
   if (*Len == 0)
     return null;
-  Assert(IsPowerOf2(*Cap));
-  Assert(*Len < *Cap);
-  u64 i = _U64Hash(cast(u64, Key));
-  while (true) {
-    i &= *Cap - 1;
-    table_entry *Ent = *Mem + i;
-    if (Ent->Key == Key)
-      return Ent->Val;
-    else
-    if (!Ent->Key)
-      return null;
-    i++;
+
+  u64 Index = _U64Hash(Key) & *Cap - 1;
+  u32 Probe = 1;
+  while ((*Keys)[Index]) {
+    if ((*Keys)[Index] == Key)
+      return cast(void*, *Vals + Index*Itm);
+    Index += Probe;
+    Probe += 1;
+    while (Index >= *Cap)
+      Index -= *Cap;
   }
+
   return null;
 }
 

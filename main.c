@@ -15,6 +15,13 @@ int main(int Argc, char **Argv) {
   r32 t = 0;
   r32 f = 2;
 
+  table(i32) Ints = {0};
+  i32 N = 11;
+  ItrNum (i, N)
+    TableAdd(&Ints, _U64Hash(256*(i+1)), 42+i);
+  ItrNum (i, N)
+    printf("%d\n", TableGet(&Ints, _U64Hash(256*(i+1))));
+
   while (!Wnd->Finish) {
     WndBeginFrame(Wnd);
     WndBeginRendering(Wnd);

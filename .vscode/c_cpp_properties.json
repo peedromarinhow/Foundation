@@ -8,6 +8,7 @@
       "defines": [
         "DEBUG",
         "ENABLE_ASSERT",
+        "FOUNDATION_IMPL",
         "UNICODE",
         "_UNICODE"
       ],
