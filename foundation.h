@@ -549,7 +549,7 @@ enum _mem_flags {
   mem_Readonly     = Flag(1),
   mem_Runnable     = Flag(2),
 };
-function byte *SysMemReserve(size Size, u32 Flags);
+function void *SysMemReserve(size Size, u32 Flags);
 function void  SysMemRelease(void *Ptr, size Size);
 
 function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
@@ -990,8 +990,9 @@ function u64 _U64Hash(u64 x) {
   return x;
 }
 function b32 _TableMake(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size InitCap) {
-  *Keys = cast(u64*, SysMemReserve(InitCap*sizeof(void*), 0));
-  *Vals = SysMemReserve(InitCap*Itm, 0);
+  InitCap = AlignUpPow2(Max(InitCap, TABLE_MIN_CAP), 16);
+  *Keys = cast(u64*,  SysMemReserve(InitCap*sizeof(u64), 0));
+  *Vals = cast(byte*, SysMemReserve(InitCap*Itm, 0));
   *Cap  = InitCap;
   *Len  = 0;
   if (*Keys == null || *Vals == null)
@@ -1007,23 +1008,23 @@ function void _TableFree(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm
   *Keys = null;
   *Vals = null;
 }
-
-function b32 _TableGrow(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size NewCap) { // This is not working.
+function b32 _TableGrow(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size NewCap) {
   size  OldCap  = *Cap;
-  size  OldLen  = *Len;
   u64  *OldKeys = *Keys;
   byte *OldVals = *Vals;
 
-  *Cap  = Max(NewCap, TABLE_MIN_CAP);
-  *Keys = cast(u64*, SysMemReserve((*Cap)*sizeof(void*), 0));
-  *Vals = SysMemReserve(*Cap*Itm, 0);
-  if (*Keys == null || *Vals == null)
-    return false;
+  *Cap  = AlignUpPow2(Max(NewCap, TABLE_MIN_CAP), 16);
+  *Len  = 0;
+  *Keys = cast(u64*,  SysMemReserve((*Cap)*sizeof(u64), 0));
+  *Vals = cast(byte*, SysMemReserve((*Cap)*Itm, 0));
   
-  if (OldKeys)
-    memcpy(*Keys, OldKeys, (*Len)*sizeof(void*));
-  if (OldVals)
-    memcpy(*Vals, OldVals, (*Len)*Itm);
+  ItrNum (Index, OldCap) {
+    u64 Key = OldKeys[Index];
+    if (Key) {
+      if (!_TableAdd(Cap, Len, Keys, Vals, Itm, Key, OldVals + Index*Itm))
+        return false;
+    }
+  }
 
   SysMemRelease(OldKeys, OldCap*sizeof(u64));
   SysMemRelease(OldVals, OldCap*Itm);
@@ -1354,7 +1355,7 @@ function void SysAbort(i32 Code) {
 
 ////////////////////////
 // MEMORY
-function byte *SysMemReserve(size Size, u32 Flags) {
+function void *SysMemReserve(size Size, u32 Flags) {
   u32 ProtectionFlags = 0;
   if (Flags & mem_Unaccessible)
     ProtectionFlags |= PAGE_NOACCESS;
@@ -2051,7 +2052,7 @@ function void SysAbort(i32 Code);
 
 ////////////////////////
 // MEMORY
-function byte *SysMemReserve(size Size, u32 Flags);
+function void *SysMemReserve(size Size, u32 Flags);
 function void  SysMemRelease(void *Ptr, size Size);
 
 ////////////////////////
