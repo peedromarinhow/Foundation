@@ -7,14 +7,22 @@
 int main(int Argc, char **Argv) {
   SysInit(Argc, Argv);
 
-  table(i32) Ints = {0};
-  i32 N = 1000;
-  ItrNum (i, N)
-    TableAdd(&Ints, _U64Hash(256*(i+1)), 42+i);
-  ItrNum (i, N)
-    printf("%d\n", TableGet(&Ints, _U64Hash(256*(i+1))));
-  
-  printf("finished\n");
+  window   *Wnd = WndInit(gfx_api_Opengl, 0, 0, -1, -1);
+  renderer *Ren = RenInit(PoolReserve(0), Wnd);
+
+  while (!Wnd->Finish) {
+    WndBeginFrame(Wnd);
+
+    RenPushVert(Ren, R32v2(-0.5, -0.5));
+    RenPushVert(Ren, R32v2(0, 0.5));
+    RenPushVert(Ren, R32v2(0.5, -0.5));
+    RenDraw(Ren);
+
+    WndEndFrame(Wnd);
+  }
+
+  RenEnd(Ren);
+  WndEnd(Wnd);
 
   SysEnd();
 }

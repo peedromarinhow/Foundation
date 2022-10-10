@@ -39,8 +39,8 @@ typedef struct _opengl_renderer {
   u32 VertsArray;
   u32 VertsBuff;
 } opengl_renderer;
-function u32 _OpenGLCompileShader(pool *Pool, opengl_api *Gl, const c8 *Src, u32 Type);
-function u32 _OpenGLLinkProgram  (pool *Pool, opengl_api *Gl, u32 VertShader, u32 FragShader);
+function u32 _OpenGLCompileShader(pool *Pool, const c8 *Src, u32 Type);
+function u32 _OpenGLLinkProgram  (pool *Pool, u32 VertShader, u32 FragShader);
 
 function void _OpenGLRenInit(pool *Pool, renderer *Renderer);
 function void _OpenGLRenEnd (renderer *Renderer);
@@ -65,37 +65,37 @@ function void _D3d11RenDraw(renderer *Renderer);
 
 ////////////////////////
 // OPENGL
-function u32 _OpenGLCompileShader(pool *Pool, opengl_api *Gl, const c8 *Src, u32 Type) {
-  u32 Res = Gl->CreateShader(Type);
-  Gl->ShaderSource(Res, 1, &Src, NULL);
-  Gl->CompileShader(Res);
+function u32 _OpenGLCompileShader(pool *Pool,  const c8 *Src, u32 Type) {
+  u32 Res = GlCreateShader(Type);
+  GlShaderSource(Res, 1, &Src, NULL);
+  GlCompileShader(Res);
 
   c8 *LogStr = null;
   i32 LogLen = 0;
-  Gl->GetShaderiv(Res, GL_INFO_LOG_LENGTH, &LogLen);
+  GlGetShaderiv(Res, GL_INFO_LOG_LENGTH, &LogLen);
   if (LogLen) {
     pool_snap Snap = GetPoolSnapshot(Pool);
     LogStr = PoolPush(Snap.Pool, sizeof(c8)*LogLen);
-    Gl->GetShaderInfoLog(Res, LogLen, NULL, LogStr);
+    GlGetShaderInfoLog(Res, LogLen, NULL, LogStr);
     fprintf(stderr, "Error: %s shader compilation failed. Error: %s\n", (Type==GL_VERTEX_SHADER)? "vertex":"fragment", LogStr);
     EndPoolSnapshot(Snap);
     Res = 0;
   }
   return Res;
 }
-function u32 _OpenGLLinkProgram(pool *Pool, opengl_api *Gl, u32 VertShader, u32 FragShader) {
-  u32 Res = Gl->CreateProgram();
-  Gl->AttachShader(Res, VertShader);
-  Gl->AttachShader(Res, FragShader);
-  Gl->LinkProgram(Res);
+function u32 _OpenGLLinkProgram(pool *Pool, u32 VertShader, u32 FragShader) {
+  u32 Res = GlCreateProgram();
+  GlAttachShader(Res, VertShader);
+  GlAttachShader(Res, FragShader);
+  GlLinkProgram(Res);
 
   c8 *LogStr = null;
   i32 LogLen = 0;
-  Gl->GetProgramiv(Res, GL_INFO_LOG_LENGTH, &LogLen);
+  GlGetProgramiv(Res, GL_INFO_LOG_LENGTH, &LogLen);
   if (LogLen) {
     pool_snap Snap = GetPoolSnapshot(Pool);
     LogStr = PoolPush(Snap.Pool, sizeof(c8)*LogLen);
-    Gl->GetProgramInfoLog(Res, LogLen, NULL, LogStr);
+    GlGetProgramInfoLog(Res, LogLen, NULL, LogStr);
     fprintf(stderr, "Error: program compilation failed. Error: %s\n", LogStr);
     EndPoolSnapshot(Snap);
     Res = 0;
@@ -105,7 +105,6 @@ function u32 _OpenGLLinkProgram(pool *Pool, opengl_api *Gl, u32 VertShader, u32 
 }
 
 function void _OpenGLRenInit(pool *Pool, renderer *Renderer) {
-  opengl_api *Gl = cast(opengl_api*, Renderer->Wnd->GfxApi);
   const c8 *VertShaderSrc = 
     "#version 330 core\n"
     "layout (location = 0) in vec3 aPos;\n"
@@ -124,60 +123,54 @@ function void _OpenGLRenInit(pool *Pool, renderer *Renderer) {
 
   //.link: https://learnopengl.com/Getting-started/Hello-Triangle
   // Create vertex shader.
-  u32 VertShader = _OpenGLCompileShader(Pool, Gl, VertShaderSrc, GL_VERTEX_SHADER);
+  u32 VertShader = _OpenGLCompileShader(Pool, VertShaderSrc, GL_VERTEX_SHADER);
   // Create fragment shader.
-  u32 FragShader = _OpenGLCompileShader(Pool, Gl, FragShaderSrc, GL_FRAGMENT_SHADER);
+  u32 FragShader = _OpenGLCompileShader(Pool, FragShaderSrc, GL_FRAGMENT_SHADER);
 
   // Create program and delete shaders.
   opengl_renderer *Back = PoolPushZeros(Pool, sizeof(opengl_renderer));
-  Back->ShaderProgram = _OpenGLLinkProgram(Pool, Gl, VertShader, FragShader);
-  Gl->DeleteShader(VertShader);
-  Gl->DeleteShader(FragShader);
+  Back->ShaderProgram = _OpenGLLinkProgram(Pool, VertShader, FragShader);
+  GlDeleteShader(VertShader);
+  GlDeleteShader(FragShader);
 
   // Create vertex array.
-  Gl->GenVertexArrays(1, &Back->VertsArray);
-  Gl->BindVertexArray(Back->VertsArray);
+  GlGenVertexArrays(1, &Back->VertsArray);
+  GlBindVertexArray(Back->VertsArray);
 
   // Create vertex buffer.
-  Gl->GenBuffers(1, &Back->VertsBuff);
-  Gl->BindBuffer(GL_ARRAY_BUFFER, Back->VertsBuff);
-  Gl->BufferData(GL_ARRAY_BUFFER, Renderer->VertsCap*sizeof(r32), Renderer->Verts, GL_DYNAMIC_DRAW);
+  GlGenBuffers(1, &Back->VertsBuff);
+  GlBindBuffer(GL_ARRAY_BUFFER, Back->VertsBuff);
+  GlBufferData(GL_ARRAY_BUFFER, Renderer->VertsCap*sizeof(r32), Renderer->Verts, GL_DYNAMIC_DRAW);
 
-  Gl->EnableVertexAttribArray(0);
-  Gl->VertexAttribPointer(0, 2, GL_FLOAT, false, 0, null);
+  GlEnableVertexAttribArray(0);
+  GlVertexAttribPointer(0, 2, GL_FLOAT, false, 0, null);
 
   Renderer->Back = Back;
 }
 function void _OpenGLRenEnd(renderer *Renderer) {
-  opengl_api      *Gl   = cast(opengl_api*, Renderer->Wnd->GfxApi);
   opengl_renderer *Back = cast(opengl_renderer*, Renderer->Back);
 
-  Gl->DeleteVertexArrays(1, &Back->VertsArray);
-  Gl->DeleteBuffers     (1, &Back->VertsBuff);
-  Gl->DeleteProgram     (Back->ShaderProgram);
+  GlDeleteVertexArrays(1, &Back->VertsArray);
+  GlDeleteBuffers     (1, &Back->VertsBuff);
+  GlDeleteProgram     (Back->ShaderProgram);
 }
 
 function void _OpenGLRenDraw(renderer *Renderer) {
-  opengl_api      *Gl   = cast(opengl_api*, Renderer->Wnd->GfxApi);
   opengl_renderer *Back = cast(opengl_renderer*, Renderer->Back);
 
-  Gl->Viewport(0, 0, Renderer->Wnd->Dim.w, Renderer->Wnd->Dim.h);
-  Gl->ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-  Gl->Clear(GL_COLOR_BUFFER_BIT);
+  GlViewport(0, 0, Renderer->Wnd->Dim.w, Renderer->Wnd->Dim.h);
+  GlClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+  GlClear(GL_COLOR_BUFFER_BIT);
 
-  Gl->UseProgram(Back->ShaderProgram);
-  Gl->Uniform4f(Gl->GetUniformLocation(Back->ShaderProgram, "Color"), 1.0f, 0.5f, 0.2f, 1.0f);
-  Gl->BufferSubData(GL_ARRAY_BUFFER, 0, sizeof(r32v2)*Renderer->VertsLen, Renderer->Verts);
-  Gl->DrawArraysInstanced(GL_TRIANGLES, 0, cast(u32, Renderer->VertsLen), 1);
+  GlUseProgram(Back->ShaderProgram);
+  GlUniform4f(GlGetUniformLocation(Back->ShaderProgram, "Color"), 1.0f, 0.5f, 0.2f, 1.0f);
+  GlBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(r32v2)*Renderer->VertsLen, Renderer->Verts);
+  GlDrawArraysInstanced(GL_TRIANGLES, 0, cast(u32, Renderer->VertsLen), 1);
 }
 
 ////////////////////////
 // D3D11
 function void _D3d11RenInit(pool *Pool, renderer *Renderer) {
-  d3d11_api *D11 = cast(d3d11_api*, Renderer->Wnd->GfxApi);
-
-  Todo();
-
   d3d11_renderer *Back = PoolPushZeros(Pool, sizeof(opengl_renderer));
 
   Todo();
@@ -185,13 +178,11 @@ function void _D3d11RenInit(pool *Pool, renderer *Renderer) {
   Renderer->Back = Back;
 }
 function void _D3d11RenEnd (renderer *Renderer) {
-  d3d11_api      *D11  = cast(d3d11_api*, Renderer->Wnd->GfxApi);
   d3d11_renderer *Back = cast(d3d11_renderer*, Renderer->Back);
 
   Todo();
 }
 function void _D3d11RenDraw(renderer *Renderer) {
-  d3d11_api      *D11  = cast(d3d11_api*, Renderer->Wnd->GfxApi);
   d3d11_renderer *Back = cast(d3d11_renderer*, Renderer->Back);
 
   Todo();

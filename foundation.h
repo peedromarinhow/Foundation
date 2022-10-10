@@ -391,6 +391,11 @@ inline i32v2 I32r2Mid(i32r2 r);
 inline r32v2 R32r2Mid(r32r2 r);
 
 ////////////////////////
+// HASH FUNCTIONS
+function u64 StrRangeHash(c8 *Start, c8 *End);
+function u64 U64Hash(u64 x);
+
+////////////////////////
 // MEMORY
 #define POOL_INIT_CAP Gb(1)
 typedef struct _pool {
@@ -449,8 +454,8 @@ function void *_TableGet (size *Cap, size *Len, u64 **Keys, byte **Vals, size It
 #define _TableExp(Table) &(Table)->Cap, &(Table)->Len, &(Table)->Keys, &(Table)->Vals, sizeof((Table)->Tmp)
 #define  TableMake(Table, Len)                         _TableMake(_TableExp(Table), (Len))
 #define  TableFree(Table)                              _TableFree(_TableExp(Table))
-#define  TableAdd(Table, Key, Val) (Table)->Tmp = Val, _TableAdd (_TableExp(Table), cast(u64, Key), &(Table)->Tmp)
-#define  TableGet(Table, Key)    *((Table)->Ptr =      _TableGet (_TableExp(Table), cast(u64, Key)))
+#define  TableAdd(Table, Key, Val) (Table)->Tmp = Val, _TableAdd (_TableExp(Table), cast(u64, Key),   &(Table)->Tmp)
+#define  TableGet(Table, Key)     ((Table)->Ptr =      _TableGet (_TableExp(Table), cast(u64, Key)))? *(Table)->Ptr : (Table)->Tmp
 
 ////////////////////////
 // STRINGS
@@ -475,6 +480,8 @@ function str16 Str16Cstr (c16 *Ptr);
 inline   str32 Str32     (c32 *Ptr,   size Len);
 inline   str32 Str32Range(c32 *Start, c32 *End);
 function str32 Str32Cstr (c32 *Ptr);
+
+#define StrExp(Str) cast(int, Str.Len), Str.Ptr
 
 typedef struct _utf_char {
 	u32  Code;
@@ -607,17 +614,13 @@ function b32  SysDeleteDir (str8  Path);
   Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
   Macro(PFNGLDELETEPROGRAMPROC,           DeleteProgram)
 
-typedef struct _opengl_api {
-  #define Decl(type, Name) type Name;
-    SELECTED_OPENGL_FUNCTIONS(Decl)
-  #undef Decl
-} opengl_api;
+#define Decl(type, Name) type Gl##Name;
+  SELECTED_OPENGL_FUNCTIONS(Decl)
+#undef Decl
 
 ////////////////////////
 // D3D11
-typedef struct _d3d11_api {
-  int Tmp;
-} d3d11_api;
+//.todo
 
 ////////////////////////
 // WINDOW INTERFACE
@@ -660,7 +663,6 @@ typedef struct _window {
   sys_specific_window *SysWnd;
   array(c8*)           Errors;
   b32                  Finish;
-  void                *GfxApi;
   gfx_api_kind GfxApiKind;
   u64          FrameStart;
   r64          FrameDelta;
@@ -677,9 +679,6 @@ function void    WndEnd(window *Window);
 
 function void WndBeginFrame(window *Window);
 function void WndEndFrame  (window *Window);
-
-function void WndBeginRendering(window *Window);
-function void WndEndRendering  (window *Window);
 
 
 #endif//FOUNDATION_HEAD
@@ -905,6 +904,23 @@ inline i32v2 I32r2Mid(i32r2 r) { return I32v2(R2MidComps(r)); }
 inline r32v2 R32r2Mid(r32r2 r) { return R32v2(R2MidComps(r)); }
 
 ////////////////////////
+// HASH FUNCTIONS
+function u64 StrRangeHash(c8 *Start, c8 *End) {
+  u64 x = 0xcbf29ce484222325ull;
+  while (Start != End) {
+    x ^= *Start++;
+    x *= 1099511628211ull;
+    x ^= x >> 32;
+  }
+  return x;
+}
+function u64 U64Hash(u64 x) {
+  x *= 0xff51afd7ed558ccdull;
+  x ^= x >> 32;
+  return x;
+}
+
+////////////////////////
 // MEMORY
 function pool *PoolReserve(size Cap) {
   if (Cap == 0)
@@ -951,7 +967,7 @@ function void EndPoolSnapshot(pool_snap Snap) {
 }
 
 ////////////////////////
-// DYNAMIC ARRAYARRAY
+// DYNAMIC ARRAY
 function b32 _ArrayMake(size *Cap, size *Len, size Itm, void **Mem, size InitCap) {
   *Mem = SysMemReserve(Itm*InitCap, 0);
   *Cap = InitCap;
@@ -984,11 +1000,6 @@ function b32 _ArrayGrow(size *Cap, size *Len, size Itm, void **Mem) {
 // HASH TABLE
 //.link: https://github.com/rxi/map/tree/master/src
 //.link: https://github.com/pervognsen/bitwise/
-function u64 _U64Hash(u64 x) {
-  x *= 0xff51afd7ed558ccdull;
-  x ^= x >> 32;
-  return x;
-}
 function b32 _TableMake(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, size InitCap) {
   InitCap = AlignUpPow2(Max(InitCap, TABLE_MIN_CAP), 16);
   *Keys = cast(u64*,  SysMemReserve(InitCap*sizeof(u64), 0));
@@ -1038,7 +1049,7 @@ function void *_TableAdd(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm
       return false;
   }
 
-  u64 Index = _U64Hash(Key) & *Cap - 1;
+  u64 Index = U64Hash(Key) & *Cap - 1;
   u32 Probe = 1;
   while ((*Keys)[Index]) {
     Index += Probe;
@@ -1050,6 +1061,7 @@ function void *_TableAdd(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm
   *Len += 1;
   (*Keys)[Index] = Key;
   memcpy(*Vals + Index*Itm, Val, Itm);
+  memset(Val, 0, Itm); // 'Val' is always passed as the address of 'Table.Tmp'. 'Table.Tmp' is set to zero here because it is used in the 'TableGet' function, where it must be zero to signify that nothing was found.
 
   return *Vals + Index*Itm;
 }
@@ -1057,7 +1069,7 @@ function void *_TableGet(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm
   if (*Len == 0)
     return null;
 
-  u64 Index = _U64Hash(Key) & *Cap - 1;
+  u64 Index = U64Hash(Key) & *Cap - 1;
   u32 Probe = 1;
   while ((*Keys)[Index]) {
     if ((*Keys)[Index] == Key)
@@ -1726,18 +1738,15 @@ function void _Win32OpenGLWndInit(window *Window) {
     ArrayAdd(&Window->Errors, "(opengl) could not make current context");
 
   // Create opengl api.
-  opengl_api *Api = PoolPush(GlobalWin32Pool, sizeof(opengl_api));
-  #define Assign(type, Name)                                                                                         \
-    Api->Name = cast(type, _Win32OpenGLGetAnyFuncAddress(WglGetProcAddressProc, OpenGLModule, Stringify(gl##Name))); \
-    if (!Api->Name)                                                                                                  \
-      ArrayAdd(&Window->Errors, "(opengl startup) could not load \"" Stringify(gl##Name) "\"");
+  #define Assign(type, Name)                                                                                        \
+    Gl##Name = cast(type, _Win32OpenGLGetAnyFuncAddress(WglGetProcAddressProc, OpenGLModule, Stringify(gl##Name))); \
+    if (!Gl##Name)                                                                                                  \
+      ArrayAdd(&Window->Errors, "(opengl startup) could not load \"" Stringify(Gl##Name) "\"");
     SELECTED_OPENGL_FUNCTIONS(Assign)
   #undef Assign
 
-  if (!Window->Errors.Len) {
+  if (!Window->Errors.Len)
     SysWnd->GfxCtx = Ctx;
-    Window->GfxApi = Api;
-  }
 }
 function void _Win32OpenGLWndEnd(window *Window) {
   sys_specific_window *SysWnd = Window->SysWnd;
@@ -2004,20 +2013,6 @@ function void WndBeginFrame(window *Window) {
       );
     }
   }
-}
-function void WndEndFrame(window *Window) {
-  // Frame timing and frame-rate capping.
-  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
-  r32 TimeToSleep = (1.0f/Window->DesiredFps - Window->FrameDelta);
-  if (TimeToSleep > 0) 
-    Sleep(TimeToSleep*Thousand(1));
-  else
-    Window->LostFrames = true;
-}
-
-function void WndBeginRendering(window *Window) {
-  if (Window->Errors.Len)
-    return;
 
   if (Window->GfxApiKind == gfx_api_None)
     Todo();
@@ -2028,9 +2023,14 @@ function void WndBeginRendering(window *Window) {
   if (Window->GfxApiKind == gfx_api_D3d11)
     _Win32D3d11BeginFrame(Window);
 }
-function void WndEndRendering(window *Window) {
-  if (Window->Errors.Len)
-    return;
+function void WndEndFrame(window *Window) {
+  // Frame timing and frame-rate capping.
+  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
+  r32 TimeToSleep = (1.0f/Window->DesiredFps - Window->FrameDelta);
+  if (TimeToSleep > 0) 
+    Sleep(TimeToSleep*Thousand(1));
+  else
+    Window->LostFrames = true;
 
   if (Window->GfxApiKind == gfx_api_None)
     Todo();
