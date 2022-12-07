@@ -28,6 +28,11 @@ typedef struct _renderer {
   void *Back;
 } renderer;
 
+typedef struct _shader {
+  u32  ShaderId;
+  str8 ErrorLog;
+} shader;
+
 function renderer *RenInit(pool *Pool, window *Window);
 function void      RenEnd (renderer *Renderer);
 function void      RenDraw(renderer *Renderer);
@@ -39,6 +44,7 @@ typedef struct _opengl_renderer {
   u32 VertsArray;
   u32 VertsBuff;
 } opengl_renderer;
+
 function u32 _OpenGLCompileShader(pool *Pool, const c8 *Src, u32 Type);
 function u32 _OpenGLLinkProgram  (pool *Pool, u32 VertShader, u32 FragShader);
 
@@ -65,22 +71,28 @@ function void _D3d11RenDraw(renderer *Renderer);
 
 ////////////////////////
 // OPENGL
-function u32 _OpenGLCompileShader(pool *Pool,  const c8 *Src, u32 Type) {
-  u32 Res = GlCreateShader(Type);
-  GlShaderSource(Res, 1, &Src, NULL);
-  GlCompileShader(Res);
+function shader _OpenGLCompileShader(pool *Pool, const c8 *Src, u32 Type) {
+  u32 ShaderId = GlCreateShader(Type);
+  GlShaderSource(ShaderId, 1, &Src, NULL);
+  GlCompileShader(ShaderId);
 
   c8 *LogStr = null;
   i32 LogLen = 0;
-  GlGetShaderiv(Res, GL_INFO_LOG_LENGTH, &LogLen);
+  GlGetShaderiv(ShaderId, GL_INFO_LOG_LENGTH, &LogLen);
   if (LogLen) {
-    pool_snap Snap = GetPoolSnapshot(Pool);
-    LogStr = PoolPush(Snap.Pool, sizeof(c8)*LogLen);
-    GlGetShaderInfoLog(Res, LogLen, NULL, LogStr);
-    fprintf(stderr, "Error: %s shader compilation failed. Error: %s\n", (Type==GL_VERTEX_SHADER)? "vertex":"fragment", LogStr);
-    EndPoolSnapshot(Snap);
-    Res = 0;
+    LogStr = PoolPush(Pool, sizeof(c8)*LogLen);
+    GlGetShaderInfoLog(ShaderId, LogLen, NULL, LogStr);
   }
+
+  i32 Stat = 0;
+  GlGetShaderiv(ShaderId, GL_COMPILE_STATUS, &Stat);
+  if (Stat == 0) {
+    GlDeleteShader(ShaderId);
+    ShaderId = 0;
+  }
+
+  shader Res = {ShaderId, {LogStr, LogLen}};
+
   return Res;
 }
 function u32 _OpenGLLinkProgram(pool *Pool, u32 VertShader, u32 FragShader) {
@@ -127,11 +139,13 @@ function void _OpenGLRenInit(pool *Pool, renderer *Renderer) {
   // Create fragment shader.
   u32 FragShader = _OpenGLCompileShader(Pool, FragShaderSrc, GL_FRAGMENT_SHADER);
 
+  if (!VertShader.ShaderId || !FragShader.ShaderId); //.todo: error recovery.
+
   // Create program and delete shaders.
   opengl_renderer *Back = PoolPushZeros(Pool, sizeof(opengl_renderer));
-  Back->ShaderProgram = _OpenGLLinkProgram(Pool, VertShader, FragShader);
-  GlDeleteShader(VertShader);
-  GlDeleteShader(FragShader);
+  Back->ShaderProgram = _OpenGLLinkProgram(Pool, VertShader.ShaderId, FragShader.ShaderId);
+  GlDeleteShader(VertShader.ShaderId);
+  GlDeleteShader(FragShader.ShaderId);
 
   // Create vertex array.
   GlGenVertexArrays(1, &Back->VertsArray);
@@ -192,6 +206,12 @@ function void _D3d11RenDraw(renderer *Renderer) {
 // RENDERER WRAPPING
 function void RenPushVert(renderer *Renderer, r32v2 v) {
   Assert(Renderer->VertsLen < Renderer->VertsCap);
+
+  //.todo: put this transform in the vertex shader.
+  r32 a = (cast(r32, Renderer->Wnd->Dim.h)/cast(r32, Renderer->Wnd->Dim.w));
+  v.x *= (a<1)? a : 1;
+  v.y *= (a<1)? 1 : 1.f/a;
+
   Renderer->Verts[Renderer->VertsLen++] = v;
 }
 

@@ -259,6 +259,21 @@ typedef union _r32v2 {
 	r32 c[2];
 } r32v2;
 
+typedef union _i32m2 {
+  struct {
+    i32 x1, y1;
+    i32 x2, y2;
+  };
+  i32 c[4];
+} i32m2;
+typedef union _r32m2 {
+  struct {
+    r32 x1, y1;
+    r32 x2, y2;
+  };
+  r32 c[4];
+} r32m2;
+
 typedef union _u64r1 {
   struct  {
     u64 Min, Max;
@@ -402,7 +417,7 @@ typedef struct _pool {
 	size Cap;
 	size Pos;
 } pool;
-function pool *PoolReserve  (size cap);
+function pool *ReservePool  (size cap);
 function void  PoolRelease  (pool *Pool);
 function void *PoolPush     (pool *Pool, size Size);
 function void *PoolPushZeros(pool *Pool, size Size);
@@ -922,7 +937,7 @@ function u64 U64Hash(u64 x) {
 
 ////////////////////////
 // MEMORY
-function pool *PoolReserve(size Cap) {
+function pool *ReservePool(size Cap) {
   if (Cap == 0)
     Cap = POOL_INIT_CAP;
   byte *Mem = SysMemReserve(Cap, 0);
@@ -1334,7 +1349,7 @@ global u64   GlobalWin32TicksUponStart;
 ////////////////////////
 // SETUP
 function b32 SysInit(i32 Argc, c8 **Argv) {
-  pool *Pool = PoolReserve(0);
+  pool *Pool = ReservePool(0);
 
   LARGE_INTEGER PerfFrequency = {0};
   if (!QueryPerformanceFrequency(&PerfFrequency)) {
@@ -1974,7 +1989,7 @@ function void WndBeginFrame(window *Window) {
 
   SwitchToFiber(SysWnd->MessageFiber);
 
-  // Update window position and dimmensions.
+  // Update window position and dimensions.
   RECT ClientRect;
   GetClientRect(SysWnd->WindowHandle, &ClientRect);
   Window->Dim.w = ClientRect.right  - ClientRect.left;
