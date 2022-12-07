@@ -32,7 +32,7 @@
   #elif defined(__APPLE__) && defined(__MACH__)
     #define OS_MAC 1
   #else
-    #error "No operating system defined in this compiler."
+    #error "No operating system defined Time this compiler."
   #endif
   #if defined(__amd64__)
     #define ARCH_X64 1
@@ -43,7 +43,7 @@
   #elif defined(__aarch64__)
     #define ARCH_ARM64 1
   #else
-    #error "No architecture defined in this compiler."
+    #error "No architecture defined Time this compiler."
   #endif
 #elif defined(__GNUC__)
   #define COMPILER_GCC 1
@@ -54,7 +54,7 @@
   #elif defined(__APPLE__) && defined(__MACH__)
     #define OS_MAC 1
   #else
-    #error "No operating system defined in this compiler."
+    #error "No operating system defined Time this compiler."
   #endif
   #if defined(__amd64__)
     #define ARCH_X64 1
@@ -65,14 +65,14 @@
   #elif defined(__aarch64__)
     #define ARCH_ARM64 1
   #else
-    #error "No architecture defined in this compiler."
+    #error "No architecture defined Time this compiler."
   #endif
 #elif defined(_MSC_VER)
   #define COMPILER_CL 1
   #if defined(_WIN32)
     #define OS_WIN 1
   #else
-    #error "No operating system defined in this compiler."
+    #error "No operating system defined Time this compiler."
   #endif
   #if defined(_M_AMD64)
     #define ARCH_X64 1
@@ -81,10 +81,10 @@
   #elif defined(_M_ARM)
     #define ARCH_ARM 1
   #else
-    #error "No architecture defined in this compiler."
+    #error "No architecture defined Time this compiler."
   #endif
 #else
-  #error "No context defined in this compiler."
+  #error "No context defined Time this compiler."
 #endif
 
 ////////////////////////
@@ -109,9 +109,9 @@
 #define UniqueId(Name) Glue(Name, __LINE__)
 #define Todo(s)
 
-#define AssertBreak() __debugbreak();
+#define AssertBreak() __debugbreak(); SysAbort(1);
 #if defined(ENABLE_ASSERT)
-  #define Assert(Expr, ...) if (!(Expr)) AssertBreak();
+  #define Assert(Expr, ...) if (!(Expr)) { printf("(" #Expr ") Assert failed: " __VA_ARGS__); AssertBreak(); }
 #else
 	#define Assert()
 #endif
@@ -157,8 +157,8 @@
 #define V2AddComps(v1, v2) (v1).x + (v1).x, (v1).y + (v2).y
 #define V2SubComps(v1, v2) (v1).x - (v1).x, (v1).y - (v2).y
 
-#define R1AddComps(r1, r2) Todo()
-#define R1SubComps(r1, r2) Todo()
+#define R1AddComps(r1, r2) Min(r1.Min, r2.Min), Max(r1.Max, r2.Max)
+#define R1SubComps(r1, r2) Max(r1.Min, r2.Min), Min(r1.Max, r2.Max)
 
 #define R1Overlap(r1, r2) ((r1).Min < (r2).Max && (r2).Min < (r1).Max)
 #define R2Overlap(r1, r2) ((r1.x0 < r2.x1 && r2.x0 < r1.x1) && (r1.y0 < r2.y1 && r2.y0 < r1.y1))
@@ -258,21 +258,6 @@ typedef union _r32v2 {
   };
 	r32 c[2];
 } r32v2;
-
-typedef union _i32m2 {
-  struct {
-    i32 x1, y1;
-    i32 x2, y2;
-  };
-  i32 c[4];
-} i32m2;
-typedef union _r32m2 {
-  struct {
-    r32 x1, y1;
-    r32 x2, y2;
-  };
-  r32 c[4];
-} r32m2;
 
 typedef union _u64r1 {
   struct  {
@@ -409,6 +394,7 @@ inline r32v2 R32r2Mid(r32r2 r);
 // HASH FUNCTIONS
 function u64 StrRangeHash(c8 *Start, c8 *End);
 function u64 U64Hash(u64 x);
+function u64 U64HashMix(u64 x, u64 y);
 
 ////////////////////////
 // MEMORY
@@ -417,7 +403,7 @@ typedef struct _pool {
 	size Cap;
 	size Pos;
 } pool;
-function pool *ReservePool  (size cap);
+function pool *PoolReserve  (size cap);
 function void  PoolRelease  (pool *Pool);
 function void *PoolPush     (pool *Pool, size Size);
 function void *PoolPushZeros(pool *Pool, size Size);
@@ -467,10 +453,10 @@ function void *_TableAdd (size *Cap, size *Len, u64 **Keys, byte **Vals, size It
 function void *_TableGet (size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm, u64 Key);
 
 #define _TableExp(Table) &(Table)->Cap, &(Table)->Len, &(Table)->Keys, &(Table)->Vals, sizeof((Table)->Tmp)
-#define  TableMake(Table, Len)                         _TableMake(_TableExp(Table), (Len))
-#define  TableFree(Table)                              _TableFree(_TableExp(Table))
-#define  TableAdd(Table, Key, Val) (Table)->Tmp = Val, _TableAdd (_TableExp(Table), cast(u64, Key),   &(Table)->Tmp)
-#define  TableGet(Table, Key)     ((Table)->Ptr =      _TableGet (_TableExp(Table), cast(u64, Key)))? *(Table)->Ptr : (Table)->Tmp
+#define  TableMake(Table, Len)                           _TableMake(_TableExp(Table), (Len))
+#define  TableFree(Table)                                _TableFree(_TableExp(Table))
+#define  TableAdd(Table, Key, Val) (Table)->Tmp = (Val), _TableAdd (_TableExp(Table), cast(u64, Key),   &(Table)->Tmp)
+#define  TableGet(Table, Key)     ((Table)->Ptr =        _TableGet (_TableExp(Table), cast(u64, Key)))? *(Table)->Ptr : (Table)->Tmp
 
 ////////////////////////
 // STRINGS
@@ -497,6 +483,10 @@ inline   str32 Str32Range(c32 *Start, c32 *End);
 function str32 Str32Cstr (c32 *Ptr);
 
 #define StrExp(Str) cast(int, Str.Len), Str.Ptr
+
+typedef array(str8)  str8_array;
+typedef array(str16) str16_array;
+typedef array(str32) str32_array;
 
 typedef struct _utf_char {
 	u32  Code;
@@ -553,8 +543,8 @@ function date_time  DateTimeFromDense(dense_time Dense);
 ////////////////////////
 // FILE PROPERTIES
 typedef struct _file_properties {
-  u32  Flags;
-  b32  IsDir;
+  u8 Readonly;
+  b8 IsDir;
   size Size;
   dense_time Creation;
   dense_time Modified;
@@ -562,8 +552,8 @@ typedef struct _file_properties {
 
 ////////////////////////
 // SYSTEM INTERFACE
-function b32  SysInit(i32 Argc, c8 **Argv);
-function void SysEnd(void);
+function i32 Main(str8 ArgStr);
+
 function void SysAbort(i32 Code);
 
 enum _mem_flags {
@@ -584,117 +574,6 @@ function b32  SysRenameFile(str8  Old,   str8 New);
 function b32  SysDeleteFile(str8  Path);
 function b32  SysCreateDir (str8  Path);
 function b32  SysDeleteDir (str8  Path);
-
-////////////////////////
-// OPENGL
-#undef function
-//.link: https://gist.github.com/mmozeiko/ed2ad27f75edf9c26053ce332a1f6647.
-// Also download https://www.khronos.org/registry/EGL/api/KHR/khrplatform.h and put in "KHR" folder.
-#include "download/glcorearb.h" //.link: https://www.khronos.org/registry/OpenGL/api/GL/glcorearb.h
-#include "download/glext.h"     //.link: https://www.khronos.org/registry/OpenGL/api/GL/glext.h
-#define function static
-
-// These are the opengl functions to be loaded. All of them are supposed to be platform-agnostic.
-#define SELECTED_OPENGL_FUNCTIONS(Macro)                           \
-  Macro(PFNGLENABLEPROC,                  Enable)                  \
-  Macro(PFNGLBLENDFUNCSEPARATEPROC,       BlendFuncSeparate)       \
-  Macro(PFNGLVIEWPORTPROC,                Viewport)                \
-  Macro(PFNGLCLEARCOLORPROC,              ClearColor)              \
-  Macro(PFNGLCLEARPROC,                   Clear)                   \
-  Macro(PFNGLGENBUFFERSPROC,              GenBuffers)              \
-  Macro(PFNGLBUFFERSUBDATAPROC,           BufferSubData)           \
-  Macro(PFNGLBINDBUFFERPROC,              BindBuffer)              \
-  Macro(PFNGLBUFFERDATAPROC,              BufferData)              \
-  Macro(PFNGLCREATESHADERPROC,            CreateShader)            \
-  Macro(PFNGLSHADERSOURCEPROC,            ShaderSource)            \
-  Macro(PFNGLCOMPILESHADERPROC,           CompileShader)           \
-  Macro(PFNGLGETSHADERIVPROC,             GetShaderiv)             \
-  Macro(PFNGLGETSHADERINFOLOGPROC,        GetShaderInfoLog)        \
-  Macro(PFNGLCREATEPROGRAMPROC,           CreateProgram)           \
-  Macro(PFNGLATTACHSHADERPROC,            AttachShader)            \
-  Macro(PFNGLLINKPROGRAMPROC,             LinkProgram)             \
-  Macro(PFNGLGETPROGRAMIVPROC,            GetProgramiv)            \
-  Macro(PFNGLGETPROGRAMINFOLOGPROC,       GetProgramInfoLog)       \
-  Macro(PFNGLUSEPROGRAMPROC,              UseProgram)              \
-  Macro(PFNGLGETUNIFORMLOCATIONPROC,      GetUniformLocation)      \
-  Macro(PFNGLUNIFORM4FPROC,               Uniform4f)               \
-  Macro(PFNGLDELETESHADERPROC,            DeleteShader)            \
-  Macro(PFNGLVERTEXATTRIBPOINTERPROC,     VertexAttribPointer)     \
-  Macro(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray) \
-  Macro(PFNGLGENVERTEXARRAYSPROC,         GenVertexArrays)         \
-  Macro(PFNGLBINDVERTEXARRAYPROC,         BindVertexArray)         \
-  Macro(PFNGLDRAWARRAYSPROC,              DrawArrays)              \
-  Macro(PFNGLDRAWARRAYSINSTANCEDPROC,     DrawArraysInstanced)     \
-  Macro(PFNGLDELETEVERTEXARRAYSPROC,      DeleteVertexArrays)      \
-  Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
-  Macro(PFNGLDELETEPROGRAMPROC,           DeleteProgram)
-
-#define Decl(type, Name) type Gl##Name;
-  SELECTED_OPENGL_FUNCTIONS(Decl)
-#undef Decl
-
-////////////////////////
-// D3D11
-//.todo
-
-////////////////////////
-// WINDOW INTERFACE
-#define WINDOW_BUTTON_COUNT 256
-enum _buttons {
-  button_None,
-
-  button_Up,
-  button_Down,
-  button_Left,
-  button_Right,
-
-  button_F1,
-  button_F2,
-  button_F3,
-  button_F4,
-  button_F5,
-  button_F6,
-  button_F7,
-  button_F8,
-  button_F9,
-  button_F10,
-  button_F11,
-  button_F12,
-};
-typedef struct _button {
-  b8 Down     : 1;
-  b8 Pressed  : 1;
-  b8 Released : 1;
-} button;
-inline function void UpdateButton(button *Button, b32 IsDown);
-
-typedef struct _sys_specific_window sys_specific_window;
-typedef enum _gfx_api_kind {
-  gfx_api_None, //.todo: Add software renderer.
-  gfx_api_Opengl,
-  gfx_api_D3d11,
-} gfx_api_kind;
-typedef struct _window {
-  sys_specific_window *SysWnd;
-  array(c8*)           Errors;
-  b32                  Finish;
-  gfx_api_kind GfxApiKind;
-  u64          FrameStart;
-  r64          FrameDelta;
-  r64          DesiredFps;
-  b32          LostFrames;
-  button       Buttons[WINDOW_BUTTON_COUNT];
-  i32v2        Pos;
-  i32v2        Dim;
-} window;
-
-//.note: For default width and height the default value is 0. For default x and y the default value is -1.
-function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y);
-function void    WndEnd(window *Window);
-
-function void WndBeginFrame(window *Window);
-function void WndEndFrame  (window *Window);
-
 
 #endif//FOUNDATION_HEAD
 
@@ -840,27 +719,11 @@ inline u64r1 U64r1(u64 Min, u64 Max) {
   return Res;
 }
 
-inline r32r1 R32r1Add(r32r1 r1, r32r1 r2) {
-  r32r1 Res = {0};
-  Todo();
-  return Res;
-}
-inline u64r1 U64r1Add(u64r1 r1, u64r1 r2) {
-  u64r1 Res = {0};
-  Todo();
-  return Res;
-}
+inline r32r1 R32r1Add(r32r1 r1, r32r1 r2) { return R32r1(R1AddComps(r1, r2)); }
+inline u64r1 U64r1Add(u64r1 r1, u64r1 r2) { return U64r1(R1AddComps(r1, r2)); }
 
-inline r32r1 R32r1Sub(r32r1 r1, r32r1 r2) {
-  r32r1 Res = {0};
-  Todo();
-  return Res;
-}
-inline u64r1 U64r1Sub(u64r1 r1, u64r1 r2) {
-  u64r1 Res = {0};
-  Todo();
-  return Res;
-}
+inline r32r1 R32r1Sub(r32r1 r1, r32r1 r2) { return R32r1(R1SubComps(r1, r2)); }
+inline u64r1 U64r1Sub(u64r1 r1, u64r1 r2) { return U64r1(R1SubComps(r1, r2)); }
 
 inline b32 R32r1Overlaps(r32r1 r1, r32r1 r2) { return R1Overlap(r1, r2); }
 inline b32 U64r1Overlaps(u64r1 r1, u64r1 r2) { return R1Overlap(r1, r2); }
@@ -874,7 +737,6 @@ inline u64 U64r1Len(u64r1 r) { return R1Len(r); }
 inline r32 R32r1Mid(r32r1 r) { return R1Mid(r); }
 inline u64 U64r1Mid(u64r1 r) { return R1Mid(r); }
 
-
 inline i32r2 I32r2(i32v2 Min, i32v2 Max) {
   i32r2 Res = {Min, Max};
   return Res;
@@ -884,27 +746,13 @@ inline r32r2 R32r2(r32v2 Min, r32v2 Max) {
   return Res;
 }
 
-inline i32r2 I32r2Add(i32r2 r1, i32r2 r2) {
-  i32r2 Res = {0};
-  Todo();
-  return Res;
-}
-inline r32r2 R32r2Add(r32r2 r1, r32r2 r2) {
-  r32r2 Res = {0};
-  Todo();
-  return Res;
-}
+Todo();
+// inline i32r2 I32r2Add(i32r2 r1, i32r2 r2) { return I32r2(I32v2(Min(r1.Min.x, r1.Min.y), Min(r1.Min.y)), I32v2(Max(r1.Max.x), Max(r1.Max.y))); }
+// inline r32r2 R32r2Add(r32r2 r1, r32r2 r2) { return R32r2(R32v2(Min(r1.Min.x, r1.Min.y), Min(r1.Min.y)), R32v2(Max(r1.Max.x), Max(r1.Max.y))); }
 
-inline i32r2 I32r2Sub(i32r2 r1, i32r2 r2) {
-  i32r2 Res = {0};
-  Todo();
-  return Res;
-}
-inline r32r2 R32r2Sub(r32r2 r1, r32r2 r2) {
-  r32r2 Res = {0};
-  Todo();
-  return Res;
-}
+Todo();
+// inline i32r2 I32r2Sub(i32r2 r1, i32r2 r2) { return I32r2(I32v2(Max(r1.Min.x), Max(r1.Min.y)), I32v2(Min(r1.Max.x), Min(r1.Max.y))); }
+// inline r32r2 R32r2Sub(r32r2 r1, r32r2 r2) { return R32r2(R32v2(Max(r1.Min.x), Max(r1.Min.y)), R32v2(Min(r1.Max.x), Min(r1.Max.y))); }
 
 inline b32 I32r2Overlaps(i32r2 r1, i32r2 r2) { return R2Overlap(r1, r2); }
 inline b32 R32r2Overlaps(r32r2 r1, r32r2 r2) { return R2Overlap(r1, r2); }
@@ -934,10 +782,16 @@ function u64 U64Hash(u64 x) {
   x ^= x >> 32;
   return x;
 }
+function u64 U64HashMix(u64 x, u64 y) {
+  x ^= y;
+  x *= 0xff51afd7ed558ccdull;
+  x ^= x >> 32;
+  return x;
+}
 
 ////////////////////////
 // MEMORY
-function pool *ReservePool(size Cap) {
+function pool *PoolReserve(size Cap) {
   if (Cap == 0)
     Cap = POOL_INIT_CAP;
   byte *Mem = SysMemReserve(Cap, 0);
@@ -1076,7 +930,7 @@ function void *_TableAdd(size *Cap, size *Len, u64 **Keys, byte **Vals, size Itm
   *Len += 1;
   (*Keys)[Index] = Key;
   memcpy(*Vals + Index*Itm, Val, Itm);
-  memset(Val, 0, Itm); // 'Val' is always passed as the address of 'Table.Tmp'. 'Table.Tmp' is set to zero here because it is used in the 'TableGet' function, where it must be zero to signify that nothing was found.
+  memset(Val, 0, Itm);
 
   return *Vals + Index*Itm;
 }
@@ -1248,21 +1102,47 @@ function c32 EncodeUtf16(c16 *Dst, u32 Codepoint) {
 
 function str32 ConvertStr8ToStr32(pool *Pool, str8 Str) {
   str32 Res = {0};
-  Todo();
-  return Res;
+  c32  *Mem = PoolPush(Pool, sizeof(c32)*(Str.Len + 1));
+	c32  *Dst = Mem;
+	c8   *Ptr = Str.Ptr;
+	c8   *Opl = Str.Ptr + Str.Len;
+	while (Ptr < Opl) {
+		utf_char Decoded = DecodeUtf8(Ptr, (size)(Opl - Ptr));
+	 *Dst = Decoded.Code;
+		Ptr += Decoded.Size;
+		Dst++;
+	}
+ *Dst = 0;
+	size Len = (size)(Dst - Mem);
+	PoolPopAmount(Pool, sizeof(*Mem)*(Str.Len - Len));
+  Res.Ptr = Mem;
+  Res.Len = Len;
+	return Res;
 }
 function str8 ConvertStr32ToStr8(pool *Pool, str32 Str) {
   str8 Res = {0};
-  Todo();
+  c8  *Mem = PoolPush(Pool, sizeof(u8)*(Str.Len*4 + 1));
+	c8  *Dst = Mem;
+	u32 *Ptr = Str.Ptr;
+	u32 *Opl = Str.Ptr + Str.Len;
+	while (Ptr < Opl) {
+		size Size = EncodeUtf8(Dst, *Ptr);
+		Ptr++;
+		Dst += Size;
+	}
+ *Dst = '\0';
+	size Len = (size)(Dst - Mem);
+	PoolPopAmount(Pool, sizeof(*Mem)*(Str.Len - Len));
+  Res.Ptr = Mem;
+  Res.Len = Len;
   return Res;
 }
 function str16 ConvertStr8ToStr16(pool *Pool, str8 Str) {
   str16 Res = {0};
-
-  c16 *Mem = PoolPush(Pool, sizeof(c16)*Str.Len*2 + 1);
-  c16 *Dst = Mem;
-  c8  *Ptr = Str.Ptr;
-  c8  *End = Str.Ptr + Str.Len;
+  c16  *Mem = PoolPush(Pool, sizeof(c16)*(Str.Len*2 + 1));
+  c16  *Dst = Mem;
+  c8   *Ptr = Str.Ptr;
+  c8   *End = Str.Ptr + Str.Len;
   while (Ptr < End){
     utf_char Decoded = DecodeUtf8(Ptr, cast(u32, End - Ptr));
     u32      EncSize = EncodeUtf16(Dst, Decoded.Code);
@@ -1271,14 +1151,28 @@ function str16 ConvertStr8ToStr16(pool *Pool, str8 Str) {
   }
  *Dst = 0;
   size Len = (size)(Dst - Mem);
-  PoolPopAmount(Pool, (Str.Len*2 - Len)*sizeof(*Mem)); // Pop unused amount.
-  Res.Len = Len;
+  PoolPopAmount(Pool, sizeof(*Mem)*(Str.Len*2 - Len));
   Res.Ptr = Mem;
+  Res.Len = Len;
 	return Res;
 }
 function str8 ConvertStr16ToStr8(pool *Pool, str16 Str) {
   str8 Res = {0};
-  Todo();
+  c8  *Mem = PoolPush(Pool, sizeof(c8)*(Str.Len*3 + 1));
+	c8  *Dst = Mem;
+	u16 *Ptr = Str.Ptr;
+	u16 *Opl = Str.Ptr + Str.Len;
+	while (Ptr < Opl) {
+		utf_char Decoded = DecodeUtf16(Ptr, (size)(Opl - Ptr));
+		u16      EncSize = EncodeUtf8(Dst, Decoded.Code);
+		Ptr += Decoded.Size;
+		Dst += EncSize;
+	}
+ *Dst = 0;
+	size Len = (size)(Dst - Mem);
+  PoolPopAmount(Pool, sizeof(*Mem)*(Str.Len*3 - Len));
+  Res.Ptr = Mem;
+  Res.Len = Len;
   return Res;
 }
 
@@ -1320,14 +1214,6 @@ function date_time DateTimeFromDense(dense_time Dense) {
   return Res;
 }
 
-////////////////////////
-// SYSTEM WINDOW
-inline function void UpdateButton(button *Button, b32 IsDown) {
-  Button->Released =  Button->Down && !IsDown;
-  Button->Pressed  = !Button->Down &&  IsDown;
-  Button->Down     =  IsDown;
-}
-
 /**************************************************************************************************
   PLATFORM DEPENDENT IMPLEMENTATIONS
 ***************************************************************************************************/
@@ -1337,44 +1223,41 @@ inline function void UpdateButton(button *Button, b32 IsDown) {
 #undef function
 #define WIN32_LEAN_AND_MEAN
 #include "windows.h"
+#include "shellapi.h"
 #include "timeapi.h"
 #define function static
 
 global pool *GlobalWin32Pool;
-global str8 *GlobalWin32Argv;
-global i32   GlobalWin32Argc;
 global u64   GlobalWin32TicksPerSecond;
 global u64   GlobalWin32TicksUponStart;
 
-////////////////////////
-// SETUP
-function b32 SysInit(i32 Argc, c8 **Argv) {
-  pool *Pool = ReservePool(0);
+int main(void) {
+  pool *Pool = PoolReserve(0);
 
   LARGE_INTEGER PerfFrequency = {0};
   if (!QueryPerformanceFrequency(&PerfFrequency)) {
-    fprintf(stderr, "Could not retrieve performance frequency.");
+    // fprintf(stderr, "Could not retrieve performance frequency.");
     return false;
   }
   timeBeginPeriod(1);
   LARGE_INTEGER PerfCounter = {0};
   if (!QueryPerformanceCounter(&PerfCounter)) {
-    fprintf(stderr, "Could not retrieve performance counter.");
+    // fprintf(stderr, "Could not retrieve performance counter.");
     return false;
   }
-  
-  GlobalWin32Argc           = Argc;
-  GlobalWin32Argv           = cast(str8*, PoolPush(Pool, Argc*sizeof(str8)));
-  ItrNum (i, Argc)
-    GlobalWin32Argv[i]      = Str8Cstr(Argv[i]);
+
   GlobalWin32TicksPerSecond = PerfFrequency.QuadPart;
   GlobalWin32TicksUponStart = PerfCounter.QuadPart;
   GlobalWin32Pool           = Pool;
 
-  return true;
-}
-function void SysEnd(void) {
+  str16 ArgStrUtf16 = Str16Cstr(GetCommandLineW());
+  str8  ArgStr      = ConvertStr16ToStr8(Pool, ArgStrUtf16);
+
+  i32 Res = Main(ArgStr);
+
   PoolRelease(GlobalWin32Pool);
+
+  return Res;
 }
 function void SysAbort(i32 Code) {
   ExitProcess(Code);
@@ -1410,6 +1293,36 @@ function void SysSleep(u32 Milliseconds) {
   Sleep(Milliseconds);
 }
 
+function date_time _Win32DateTimeFromSysTime(SYSTEMTIME *Time){
+    date_time Res = {0};
+    Res.Year  = Time->wYear;
+    Res.Month = (u8)Time->wMonth;
+    Res.Day   = Time->wDay;
+    Res.Hour  = Time->wHour;
+    Res.Min   = Time->wMinute;
+    Res.Sec   = Time->wSecond;
+    Res.Msec  = Time->wMilliseconds;
+    return(Res);
+}
+function SYSTEMTIME _Win32SysTimeFromDateTime(date_time *Time){
+    SYSTEMTIME Res = {0};
+    Res.wYear         = Time->Year;
+    Res.wMonth        = Time->Month;
+    Res.wDay          = Time->Day;
+    Res.wHour         = Time->Hour;
+    Res.wMinute       = Time->Min;
+    Res.wSecond       = Time->Sec;
+    Res.wMilliseconds = Time->Msec;
+    return(Res);
+}
+function dense_time _Win32DenseTimeFromFileTime(FILETIME *FileTime){
+    SYSTEMTIME SysTime = {0};
+    FileTimeToSystemTime(FileTime, &SysTime);
+    date_time  DateTime = _Win32DateTimeFromSysTime(&SysTime);
+    dense_time Res      = DenseTimeFromDate(&DateTime);
+    return(Res);
+}
+
 ////////////////////////
 // FILES
 function file_properties SysGetFileProps(str8 Path) {
@@ -1420,7 +1333,11 @@ function file_properties SysGetFileProps(str8 Path) {
 
   WIN32_FILE_ATTRIBUTE_DATA Attributes = {0};
   if (GetFileAttributesExW(cast(WCHAR*, PathUtf16.Ptr), GetFileExInfoStandard, &Attributes)) {
-    Todo();
+    Res.Readonly = Attributes.dwFileAttributes & FILE_ATTRIBUTE_READONLY;
+    Res.IsDir    = Attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+    Res.Size     = ((u64)Attributes.nFileSizeHigh << 32) | (u64)Attributes.nFileSizeLow;;
+    Res.Creation = _Win32DenseTimeFromFileTime(&Attributes.ftCreationTime);
+    Res.Modified = _Win32DenseTimeFromFileTime(&Attributes.ftLastWriteTime);
   }
 
   EndPoolSnapshot(Snap);
@@ -1429,7 +1346,7 @@ function file_properties SysGetFileProps(str8 Path) {
 }
 
 function str8 SysOpenFile(pool *Pool, str8 Path) {
-  str8 Res = {};
+  str8 Res = {0};
 
   pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
@@ -1444,10 +1361,10 @@ function str8 SysOpenFile(pool *Pool, str8 Path) {
     byte     *Buffer       = cast(byte*, PoolPush(Pool, sizeof(byte)*TotalSize));
 
     byte *Ptr         = Buffer;
-    byte *OnePastLast = Buffer + TotalSize;
+    byte *Opl = Buffer + TotalSize;
     b32   Success     = true;
-    while (Ptr < OnePastLast) {
-      DWORD ToRead = cast(DWORD, OnePastLast - Ptr);
+    while (Ptr < Opl) {
+      DWORD ToRead = cast(DWORD, Opl - Ptr);
       if (ToRead > u32Max)
         ToRead = u32Max;
 
@@ -1472,8 +1389,32 @@ function str8 SysOpenFile(pool *Pool, str8 Path) {
   return Res;
 }
 function b32 SysSaveFile(str8 Data, str8 Path) {
-  Todo();
-  return false;
+  b32 Success = false;
+
+  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
+
+  HANDLE File = CreateFileW(cast(WCHAR*, PathUtf16.Ptr), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+  if (File != INVALID_HANDLE_VALUE) {
+    byte *Ptr = Data.Ptr;
+    byte *Opl = Ptr + Data.Len;
+    while (Ptr < Opl) {
+      u64 TotalToWrite = (u64)(Opl - Ptr);
+      DWORD ToWrite = TotalToWrite;
+      if (TotalToWrite > u32Max)
+        ToWrite = u32Max;
+      DWORD ActuallyWritten = 0;
+      if (!WriteFile(File, Ptr, ToWrite, &ActuallyWritten, 0)) {
+        Success = false;
+        break;
+      }
+      Ptr += ActuallyWritten;
+    }
+  }
+
+  CloseHandle(File);
+
+  return Success;
 }
 function b32 SysRenameFile(str8 Old, str8 New) {
   pool_snap Snap     = GetPoolSnapshot(GlobalWin32Pool);
@@ -1505,564 +1446,8 @@ function b32 SysDeleteDir(str8 Path) {
   return Success;
 }
 
-////////////////////////
-// SYSTEM WINDOW
-struct _sys_specific_window {
-  void *MainFiber;
-  void *MessageFiber;
-
-  HINSTANCE Instance;
-  HWND      WindowHandle;
-  HDC       DeviceContext;
-
-  WINDOWPLACEMENT WindowPosition;
-  MONITORINFO     MonitorInfo;
-
-  void *GfxCtx;
-};
-
-////////////////////////
-// OPENGL
-typedef HGLRC wgl_create_context_proc  (HDC);
-typedef BOOL  wgl_delete_context_proc  (HGLRC);
-typedef BOOL  wgl_make_current_proc    (HDC, HGLRC);
-typedef PROC  wgl_get_proc_address_proc(LPCSTR);
-
-typedef BOOL  wgl_choose_pixel_format_arb_proc   (HDC, const int*, const float*, UINT, int*, UINT*);
-typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
-
-#define WGL_NUMBER_PIXEL_FORMATS_ARB    0x2000
-#define WGL_DRAW_TO_WINDOW_ARB          0x2001
-#define WGL_DRAW_TO_BITMAP_ARB          0x2002
-#define WGL_ACCELERATION_ARB            0x2003
-#define WGL_NEED_PALETTE_ARB            0x2004
-#define WGL_NEED_SYSTEM_PALETTE_ARB     0x2005
-#define WGL_SWAP_LAYER_BUFFERS_ARB      0x2006
-#define WGL_SWAP_METHOD_ARB             0x2007
-#define WGL_NUMBER_OVERLAYS_ARB         0x2008
-#define WGL_NUMBER_UNDERLAYS_ARB        0x2009
-#define WGL_TRANSPARENT_ARB             0x200A
-#define WGL_TRANSPARENT_RED_VALUE_ARB   0x2037
-#define WGL_TRANSPARENT_GREEN_VALUE_ARB 0x2038
-#define WGL_TRANSPARENT_BLUE_VALUE_ARB  0x2039
-#define WGL_TRANSPARENT_ALPHA_VALUE_ARB 0x203A
-#define WGL_TRANSPARENT_INDEX_VALUE_ARB 0x203B
-#define WGL_SHARE_DEPTH_ARB             0x200C
-#define WGL_SHARE_STENCIL_ARB           0x200D
-#define WGL_SHARE_ACCUM_ARB             0x200E
-#define WGL_SUPPORT_GDI_ARB             0x200F
-#define WGL_SUPPORT_OPENGL_ARB          0x2010
-#define WGL_DOUBLE_BUFFER_ARB           0x2011
-#define WGL_STEREO_ARB                  0x2012
-#define WGL_PIXEL_TYPE_ARB              0x2013
-#define WGL_COLOR_BITS_ARB              0x2014
-#define WGL_RED_BITS_ARB                0x2015
-#define WGL_RED_SHIFT_ARB               0x2016
-#define WGL_GREEN_BITS_ARB              0x2017
-#define WGL_GREEN_SHIFT_ARB             0x2018
-#define WGL_BLUE_BITS_ARB               0x2019
-#define WGL_BLUE_SHIFT_ARB              0x201A
-#define WGL_ALPHA_BITS_ARB              0x201B
-#define WGL_ALPHA_SHIFT_ARB             0x201C
-#define WGL_ACCUM_BITS_ARB              0x201D
-#define WGL_ACCUM_RED_BITS_ARB          0x201E
-#define WGL_ACCUM_GREEN_BITS_ARB        0x201F
-#define WGL_ACCUM_BLUE_BITS_ARB         0x2020
-#define WGL_ACCUM_ALPHA_BITS_ARB        0x2021
-#define WGL_DEPTH_BITS_ARB              0x2022
-#define WGL_STENCIL_BITS_ARB            0x2023
-#define WGL_AUX_BUFFERS_ARB             0x2024
-#define WGL_NO_ACCELERATION_ARB         0x2025
-#define WGL_GENERIC_ACCELERATION_ARB    0x2026
-#define WGL_FULL_ACCELERATION_ARB       0x2027
-#define WGL_SWAP_EXCHANGE_ARB           0x2028
-#define WGL_SWAP_COPY_ARB               0x2029
-#define WGL_SWAP_UNDEFINED_ARB          0x202A
-#define WGL_TYPE_RGBA_ARB               0x202B
-#define WGL_TYPE_COLORINDEX_ARB         0x202C
-
-#define WGL_CONTEXT_DEBUG_BIT_ARB              0x00000001
-#define WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB 0x00000002
-#define WGL_CONTEXT_MAJOR_VERSION_ARB          0x2091
-#define WGL_CONTEXT_MINOR_VERSION_ARB          0x2092
-#define WGL_CONTEXT_LAYER_PLANE_ARB            0x2093
-#define WGL_CONTEXT_FLAGS_ARB                  0x2094
-
-#define WGL_CONTEXT_PROFILE_MASK_ARB              0x9126
-#define WGL_CONTEXT_CORE_PROFILE_BIT_ARB          0x00000001
-#define WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB 0x00000002
-
-typedef struct _opengl_ctx {
-  HGLRC                    Hglrc;
-  wgl_make_current_proc   *MakeCurrent;
-  wgl_delete_context_proc *DeleteContext;
-} opengl_ctx;
-
-//.link: https://www.khronos.org/opengl/wiki/Load_OpenGL_Functions
-function void *_Win32OpenGLGetAnyFuncAddress(wgl_get_proc_address_proc *WglGetProcAddressProc, HMODULE OpenGLModule, const c8 *Name) {
-  void *Proc = (void *)WglGetProcAddressProc(Name);
-  if (Proc == 0 || (Proc == (void*)0x1) || (Proc == (void*)0x2) || (Proc == (void*)0x3) || (Proc == (void*)-1))
-    Proc = (void *)GetProcAddress(OpenGLModule, Name);
-  return Proc;
-}
-
-function void _Win32OpenGLWndInit(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-
-  // Load opengl32.dll and the functions we need.
-  HMODULE OpenGLModule = null;
-  if (!Window->Errors.Len)
-    OpenGLModule = LoadLibraryA("opengl32.dll");
-  if (OpenGLModule == null)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not load \"opengl32.dll\".");
-  wgl_create_context_proc   *WglCreateContextProc  = null;
-  wgl_delete_context_proc   *WglDeleteContextProc  = null;
-  wgl_make_current_proc     *WglMakeCurrentProc    = null;
-  wgl_get_proc_address_proc *WglGetProcAddressProc = null;
-  if (!Window->Errors.Len) {
-    WglCreateContextProc  = cast(wgl_create_context_proc*,   GetProcAddress(OpenGLModule, "wglCreateContext"));
-    WglDeleteContextProc  = cast(wgl_delete_context_proc*,   GetProcAddress(OpenGLModule, "wglDeleteContext"));
-    WglMakeCurrentProc    = cast(wgl_make_current_proc*,     GetProcAddress(OpenGLModule, "wglMakeCurrent"));
-    WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenGLModule, "wglGetProcAddress"));
-  }
-  if (!WglCreateContextProc || !WglDeleteContextProc || !WglMakeCurrentProc || !WglGetProcAddressProc)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl module functions");
-
-  // Create dummy window class.
-  WNDCLASSW DummyClass = {0};
-  if (!Window->Errors.Len) {
-    DummyClass.lpfnWndProc   = DefWindowProcW;
-    DummyClass.hInstance     = SysWnd->Instance;
-    DummyClass.lpszClassName = L"dummy class";
-  }
-  if (!RegisterClassW(&DummyClass))
-    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy window class");
-
-  // Create dummy window.
-  HWND DummyWindowHandle = null;
-  if (!Window->Errors.Len)
-    DummyWindowHandle = CreateWindowW(L"dummy class", L"dummy title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, SysWnd->Instance, 0);
-  if (!DummyWindowHandle)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy window for loading opengl");
-
-  // Get dummy device context.
-  HDC DummyDeviceContext = null;
-  if (!Window->Errors.Len)
-    DummyDeviceContext = GetDC(DummyWindowHandle);
-  if (!DummyDeviceContext)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy device context for loading opengl");
-  
-  // Create dummy pixel format descriptor.
-  PIXELFORMATDESCRIPTOR DummyPixelFormatDescriptor = {0};
-  if (!Window->Errors.Len) {
-    DummyPixelFormatDescriptor.nSize      = sizeof(DummyPixelFormatDescriptor);
-    DummyPixelFormatDescriptor.nVersion   = 1;
-    DummyPixelFormatDescriptor.dwFlags    = PFD_SUPPORT_OPENGL;
-    DummyPixelFormatDescriptor.iPixelType = PFD_TYPE_RGBA;
-    DummyPixelFormatDescriptor.cColorBits = 24;
-  }
-  INT DummyPixelFormatIdx = ChoosePixelFormat(DummyDeviceContext, &DummyPixelFormatDescriptor);
-  if (!DummyPixelFormatIdx)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not choose dummy pixel format");
-  if (!Window->Errors.Len) {
-    if (!SetPixelFormat(DummyDeviceContext, DummyPixelFormatIdx, &DummyPixelFormatDescriptor))
-      ArrayAdd(&Window->Errors, "(opengl startup) could not set dummy pixel format");
-  }
-
-  // Get dummy opengl context.
-  HGLRC DummyOpenglContext = null;
-  if (!Window->Errors.Len)
-    DummyOpenglContext = WglCreateContextProc(DummyDeviceContext);
-  if (!DummyOpenglContext)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not create dummy opengl context");
-  if (!Window->Errors.Len) {
-    if (!WglMakeCurrentProc(DummyDeviceContext, DummyOpenglContext))
-      ArrayAdd(&Window->Errors, "(opengl startup) calling 'WglMakeCurrent' for dummy context failed.");
-  }
-  
-  // Load opengl functions from dummy context.
-  wgl_choose_pixel_format_arb_proc    *WglChoosePixelFormatARBProc    = null;
-  wgl_create_context_attribs_arb_proc *WglCreateContextAttribsARBProc = null;
-  if (!Window->Errors.Len) {
-    WglChoosePixelFormatARBProc    = cast(wgl_choose_pixel_format_arb_proc*,    WglGetProcAddressProc("wglChoosePixelFormatARB"));
-    WglCreateContextAttribsARBProc = cast(wgl_create_context_attribs_arb_proc*, WglGetProcAddressProc("wglCreateContextAttribsARB"));
-  }
-  if (!WglChoosePixelFormatARBProc || !WglCreateContextAttribsARBProc)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not load opengl functions");
-
-  if (!Window->Errors.Len) {
-    if (!WglMakeCurrentProc(null, null))
-      ArrayAdd(&Window->Errors, "(opengl startup) cleanup call to 'WglMakeCurrent' failed.");
-  }
-
-  // Cleanup dummy stuff.
-  ReleaseDC(DummyWindowHandle, DummyDeviceContext);
-  if (!Window->Errors.Len) {
-    if (!WglDeleteContextProc(DummyOpenglContext))
-      ArrayAdd(&Window->Errors, "(opengl startup) could not delete dummy opengl context");
-    if (!DestroyWindow(DummyWindowHandle))
-      ArrayAdd(&Window->Errors, "(opengl startup) could not destroy dummy window");
-  }
-
-  // Create pixel format.
-  INT FormatAttribs[] = {
-    WGL_DRAW_TO_WINDOW_ARB, true,
-    WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB,
-    WGL_SWAP_METHOD_ARB,    WGL_SWAP_EXCHANGE_ARB,
-    WGL_SUPPORT_OPENGL_ARB, true,
-    WGL_DOUBLE_BUFFER_ARB,  true,
-    WGL_PIXEL_TYPE_ARB,     WGL_TYPE_RGBA_ARB,
-    WGL_COLOR_BITS_ARB,     24,
-    WGL_RED_BITS_ARB,       8,
-    WGL_GREEN_BITS_ARB,     8,
-    WGL_BLUE_BITS_ARB,      8,
-    0,
-  };
-  INT  PixelFormatIdx  = 0;
-  UINT NumberOfFormats = 0;
-  if (!Window->Errors.Len) {
-    if(!WglChoosePixelFormatARBProc(SysWnd->DeviceContext, FormatAttribs, null, 1, &PixelFormatIdx, &NumberOfFormats) || NumberOfFormats == 0)
-      ArrayAdd(&Window->Errors, "(opengl startup) could not choose pixel format");
-  }
-
-  // Set pixel format.
-  PIXELFORMATDESCRIPTOR PixelFormatDescriptor = {0};
-  if (!Window->Errors.Len) {
-    if (!SetPixelFormat(SysWnd->DeviceContext, PixelFormatIdx, &PixelFormatDescriptor))
-      ArrayAdd(&Window->Errors, "(opengl startup) could not set pixel format");
-  }
-
-  // Create opengl context.
-  opengl_ctx *Ctx = PoolPush(GlobalWin32Pool, sizeof(opengl_ctx));
-  INT ContextAttribs[] = {
-    WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
-    WGL_CONTEXT_MINOR_VERSION_ARB, 3,
-    WGL_CONTEXT_FLAGS_ARB,         WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
-    WGL_CONTEXT_PROFILE_MASK_ARB,  WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-    0
-  };
-  if (!Window->Errors.Len)
-    Ctx->Hglrc = WglCreateContextAttribsARBProc(SysWnd->DeviceContext, 0, ContextAttribs);
-  if (!Ctx->Hglrc)
-    ArrayAdd(&Window->Errors, "(opengl startup) could not create opengl context");
-  if (!Window->Errors.Len) {
-    Ctx->MakeCurrent   = WglMakeCurrentProc;
-    Ctx->DeleteContext = WglDeleteContextProc;
-  }
-  if (!Ctx->MakeCurrent(SysWnd->DeviceContext, Ctx->Hglrc))
-    ArrayAdd(&Window->Errors, "(opengl) could not make current context");
-
-  // Create opengl api.
-  #define Assign(type, Name)                                                                                        \
-    Gl##Name = cast(type, _Win32OpenGLGetAnyFuncAddress(WglGetProcAddressProc, OpenGLModule, Stringify(gl##Name))); \
-    if (!Gl##Name)                                                                                                  \
-      ArrayAdd(&Window->Errors, "(opengl startup) could not load \"" Stringify(Gl##Name) "\"");
-    SELECTED_OPENGL_FUNCTIONS(Assign)
-  #undef Assign
-
-  if (!Window->Errors.Len)
-    SysWnd->GfxCtx = Ctx;
-}
-function void _Win32OpenGLWndEnd(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  opengl_ctx *Ctx = cast(opengl_ctx*, SysWnd->GfxCtx);
-  Ctx->MakeCurrent(SysWnd->DeviceContext, 0);
-  if (!Window->Errors.Len)
-    Ctx->DeleteContext(Ctx->Hglrc);
-}
-
-function void _Win32OpenGLBeginFrame(window *Window) {
-  if (Window->Finish)
-    return;
-
-  sys_specific_window *SysWnd = Window->SysWnd;
-  opengl_ctx          *Ctx    = cast(opengl_ctx*, SysWnd->GfxCtx);
-  SysWnd->DeviceContext = GetDC(SysWnd->WindowHandle);
-  if (!Ctx->MakeCurrent( SysWnd->DeviceContext, Ctx->Hglrc))
-    ArrayAdd(&Window->Errors, "(opengl) could not make current context");
-}
-function void _Win32OpenGLEndFrame(window *Window) {
-  if (Window->Finish)
-    return;
-
-  sys_specific_window *SysWnd = Window->SysWnd;
-  if (!SwapBuffers(SysWnd->DeviceContext))
-    ArrayAdd(&Window->Errors, "(opengl) could not swap buffers");
-  if (Window->Errors.Len)
-    Window->Finish = true;
-  ReleaseDC(SysWnd->WindowHandle, SysWnd->DeviceContext);
-}
-
-////////////////////////
-// D3D11
-typedef struct _d3d11_ctx {
-  int Tmp;
-} d3d11_ctx;
-
-function void _Win32D3d11WndInit(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-
-  // Load d3d11.dll and the functions we need.
-  HMODULE D3d11Module = null;
-  if (!Window->Errors.Len)
-    D3d11Module = LoadLibraryA("d3d11.dll");
-  if (D3d11Module == null)
-    ArrayAdd(&Window->Errors, "(d3d11 startup) could not load \"d3d11.dll\".");
-  if (!Window->Errors.Len) {
-  }
-
-  Todo();
-}
-function void _Win32D3d11WndEnd(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  Todo();
-}
-
-function void _Win32D3d11BeginFrame(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  Todo();
-}
-function void _Win32D3d11EndFrame(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-  Todo();
-}
-
-////////////////////////
-// SYSTEM WINDOW WRAPPING
-function LRESULT CALLBACK _Win32WindowProc(HWND WindowHandle, UINT Message, WPARAM wParam, LPARAM lParam) {
-  LRESULT Result = 0;
-  window *Window = cast(window*, GetWindowLongPtr(WindowHandle, GWLP_USERDATA));
-  switch (Message) {
-    case WM_DESTROY:
-      Window->Finish = true;
-      break;
-    case WM_TIMER:
-      SwitchToFiber(Window->SysWnd->MainFiber);
-      break;
-    case WM_ENTERMENULOOP:
-    case WM_ENTERSIZEMOVE:
-      SetTimer(WindowHandle, 1, 1, 0);
-      break;
-    case WM_EXITMENULOOP:
-    case WM_EXITSIZEMOVE:
-      KillTimer(WindowHandle, 1);
-      break;
-    default:
-      Result = DefWindowProcW(WindowHandle, Message, wParam, lParam);
-  }
-  return Result;
-}
-function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
-  while (true) {
-    MSG Message;
-    while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE)) {
-      TranslateMessage(&Message);
-      DispatchMessage(&Message);
-    }
-    SwitchToFiber(MainFiber);
-  }
-}
-
-function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y) {
-  window              *Window = PoolPushZeros(GlobalWin32Pool, sizeof(window));
-  sys_specific_window *SysWnd = PoolPushZeros(GlobalWin32Pool, sizeof(sys_specific_window));
-  
-  Window->SysWnd     = SysWnd;
-  Window->GfxApiKind = GfxApiKind;
-
-  SysWnd->Instance     = GetModuleHandleW(null);
-  SysWnd->MainFiber    = ConvertThreadToFiber(0);
-  SysWnd->MessageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MessageFiberProc, SysWnd->MainFiber);
-  if (!SysWnd->MainFiber || !SysWnd->MessageFiber)
-    ArrayAdd(&Window->Errors, "could not create fibers");
-
-  // Fullscreen support.
-  SysWnd->WindowPosition.length = sizeof(SysWnd->WindowPosition);
-  SysWnd->MonitorInfo.cbSize    = sizeof(SysWnd->MonitorInfo);
-
-  // Create window class.
-  WNDCLASSW Class = {0};
-  if (!Window->Errors.Len) {
-    Class.lpfnWndProc   = _Win32WindowProc;
-    Class.hInstance     = SysWnd->Instance;
-    Class.hCursor       = LoadCursor(0, IDC_ARROW);
-    Class.lpszClassName = L"class";
-  }
-  if (!RegisterClassW(&Class))
-    ArrayAdd(&Window->Errors, "could not create window class");
-
-  // Create window.
-  i32 WndX = (x==-1)? CW_USEDEFAULT : x;
-  i32 WndY = (y==-1)? CW_USEDEFAULT : y;
-  i32 WndW = (w==0)?  CW_USEDEFAULT : w;
-  i32 WndH = (h==0)?  CW_USEDEFAULT : h;
-  if (w != 0 && h != 0) {
-    RECT WindowRect = {.right = WndW, .bottom = WndW};
-    if (AdjustWindowRect(&WindowRect, WS_OVERLAPPEDWINDOW, 0)) {
-      WndW = WindowRect.right  - WindowRect.left;
-      WndH = WindowRect.bottom - WindowRect.top;
-    }
-  }
-  if (!Window->Errors.Len)
-    SysWnd->WindowHandle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, WndX, WndY, WndW, WndH, 0, 0, SysWnd->Instance, 0);
-  if (!SysWnd->WindowHandle)
-    ArrayAdd(&Window->Errors, "could not create window");
-  if (!Window->Errors.Len)
-    SetWindowLongPtr(SysWnd->WindowHandle, GWLP_USERDATA, (LONG_PTR)Window);
-
-  // Get device context.
-  if (!Window->Errors.Len)
-    SysWnd->DeviceContext = GetDC(SysWnd->WindowHandle);
-  if (!SysWnd->DeviceContext)
-    ArrayAdd(&Window->Errors, "could not create dummy device context for loading opengl");
-
-  if (Window->GfxApiKind == gfx_api_None)
-    Todo();
-  else
-  if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32OpenGLWndInit(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32D3d11WndInit(Window);
-
-  // Show window.
-  if (!Window->Errors.Len)
-    ShowWindow(SysWnd->WindowHandle, SW_SHOWDEFAULT);
-  
-  if (Window->Errors.Len)
-    Window->Finish = true;
-  return Window;
-}
-function void WndEnd(window *Window) {
-  sys_specific_window *SysWnd = Window->SysWnd;
-
-  if (Window->GfxApiKind == gfx_api_None)
-    Todo();
-  else
-  if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32OpenGLWndEnd(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32D3d11WndEnd(Window);
-
-  ShowWindow(SysWnd->WindowHandle, SW_HIDE);
-  ReleaseDC(SysWnd->WindowHandle, SysWnd->DeviceContext);
-
-  if (Window->Errors.Len) {
-    fprintf(stderr, "There were %d errors:\n", cast(int, Window->Errors.Len));
-    ItrNum (i, Window->Errors.Len)
-      fprintf(stderr, "  Error: %s.\n", Window->Errors.Mem[i]);
-  }
-  else
-    fprintf(stdout, "The program ended without any errors.\n");
-  
-  ArrayFree(&Window->Errors);
-}
-
-global u8 GlobalWin32ButtonTable[WINDOW_BUTTON_COUNT] = {
-  [VK_UP]    = button_Up,
-  [VK_DOWN]  = button_Down,
-  [VK_LEFT]  = button_Left,
-  [VK_RIGHT] = button_Right,
-
-  [VK_F1]  = button_F1,
-  [VK_F2]  = button_F2,
-  [VK_F3]  = button_F3,
-  [VK_F4]  = button_F4,
-  [VK_F5]  = button_F5,
-  [VK_F6]  = button_F6,
-  [VK_F7]  = button_F7,
-  [VK_F8]  = button_F8,
-  [VK_F9]  = button_F9,
-  [VK_F10] = button_F10,
-  [VK_F11] = button_F11,
-  [VK_F12] = button_F12,
-};
-function void WndBeginFrame(window *Window) {
-  if (Window->Errors.Len)
-    return;
-
-  Window->FrameStart = SysGetMicroseconds();
-  Window->LostFrames = false;
-  
-  sys_specific_window *SysWnd = Window->SysWnd;
-
-  SwitchToFiber(SysWnd->MessageFiber);
-
-  // Update window position and dimensions.
-  RECT ClientRect;
-  GetClientRect(SysWnd->WindowHandle, &ClientRect);
-  Window->Dim.w = ClientRect.right  - ClientRect.left;
-  Window->Dim.h = ClientRect.bottom - ClientRect.top;
-  POINT WindowPos = {ClientRect.left, ClientRect.top};
-  ClientToScreen(SysWnd->WindowHandle, &WindowPos);
-  Window->Pos.x = WindowPos.x;
-  Window->Pos.y = WindowPos.y;
-
-  // Update kyboard.
-  BYTE KeyboardState[WINDOW_BUTTON_COUNT];
-  GetKeyboardState(KeyboardState);
-  ItrNum (Key, WINDOW_BUTTON_COUNT)
-    UpdateButton(&Window->Buttons[GlobalWin32ButtonTable[Key]], KeyboardState[Key] >> 7);
-
-  // Fullscreen support.
-  //.copy: From https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353.
-  if (Window->Buttons[button_F11].Pressed) {
-    DWORD Style = GetWindowLong(SysWnd->WindowHandle, GWL_STYLE);
-    if (Style & WS_OVERLAPPEDWINDOW && GetWindowPlacement(SysWnd->WindowHandle, &SysWnd->WindowPosition) && GetMonitorInfo(MonitorFromWindow(SysWnd->WindowHandle, MONITOR_DEFAULTTOPRIMARY), &SysWnd->MonitorInfo)) {
-      SetWindowLong(SysWnd->WindowHandle, GWL_STYLE, Style & ~WS_OVERLAPPEDWINDOW);
-      SetWindowPos(
-        SysWnd->WindowHandle, HWND_TOP,
-        SysWnd->MonitorInfo.rcMonitor.left,    SysWnd->MonitorInfo.rcMonitor.top,
-        SysWnd->MonitorInfo.rcMonitor.right  - SysWnd->MonitorInfo.rcMonitor.left,
-        SysWnd->MonitorInfo.rcMonitor.bottom - SysWnd->MonitorInfo.rcMonitor.top,
-        SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-      );
-    }
-    else {
-      SetWindowLong(SysWnd->WindowHandle, GWL_STYLE, Style | WS_OVERLAPPEDWINDOW);
-      SetWindowPlacement(SysWnd->WindowHandle, &SysWnd->WindowPosition);
-      SetWindowPos(
-        SysWnd->WindowHandle, null, 0, 0, 0, 0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-      );
-    }
-  }
-
-  if (Window->GfxApiKind == gfx_api_None)
-    Todo();
-  else
-  if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32OpenGLBeginFrame(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32D3d11BeginFrame(Window);
-}
-function void WndEndFrame(window *Window) {
-  // Frame timing and frame-rate capping.
-  Window->FrameDelta = (cast(r64, SysGetMicroseconds()) - cast(r64, Window->FrameStart))/cast(r64, Million(1));
-  r32 TimeToSleep = (1.0f/Window->DesiredFps - Window->FrameDelta);
-  if (TimeToSleep > 0) 
-    Sleep(TimeToSleep*Thousand(1));
-  else
-    Window->LostFrames = true;
-
-  if (Window->GfxApiKind == gfx_api_None)
-    Todo();
-  else
-  if (Window->GfxApiKind == gfx_api_Opengl)
-    _Win32OpenGLEndFrame(Window);
-  else
-  if (Window->GfxApiKind == gfx_api_D3d11)
-    _Win32D3d11EndFrame(Window);
-}
-
 #elif defined(OS_LNX)
 
-////////////////////////
-// SETUP
-function b32  SysInit(i32 Argc, c8 **Argv);
-function void SysEnd(void);
 function void SysAbort(i32 Code);
 
 ////////////////////////
@@ -2085,23 +1470,29 @@ function b32  SysDeleteFile(str8  Path);
 function b32  SysCreateDir (str8  Path);
 function b32  SysDeleteDir (str8  Path);
 
-////////////////////////
-// SYSTEM WINDOW
-struct _sys_specific_window {
-  void *GfxCtx;
-};
-
-////////////////////////
-// SYSTEM WINDOW WRAPPING
-function window *WndInit(gfx_api_kind GfxApiKind, i32 w, i32 h, i32 x, i32 y);
-function void    WndEnd(window *Window);
-
-function void WndBeginRendering(window *Window);
-function void WndEndRendering  (window *Window);
-
 #elif defined(OS_MAC)
 
-Todo();
+function void SysAbort(i32 Code);
+
+////////////////////////
+// MEMORY
+function void *SysMemReserve(size Size, u32 Flags);
+function void  SysMemRelease(void *Ptr, size Size);
+
+////////////////////////
+// TIME
+function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
+function void SysSleep(u32 Milliseconds);
+
+////////////////////////
+// FILES
+function file_properties SysGetFileProps(str8 Path);
+function str8 SysOpenFile  (pool *Pool,  str8 Path);
+function b32  SysSaveFile  (str8  Data,  str8 Path);
+function b32  SysRenameFile(str8  Old,   str8 New);
+function b32  SysDeleteFile(str8  Path);
+function b32  SysCreateDir (str8  Path);
+function b32  SysDeleteDir (str8  Path);
 
 #endif
 
