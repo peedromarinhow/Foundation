@@ -238,6 +238,8 @@ typedef i16 b16;
 typedef i32 b32;
 typedef i64 b64;
 
+typedef void void_proc(void);
+
 ////////////////////////
 // COMPUND TYPES
 typedef union _i32v2 {
@@ -542,13 +544,25 @@ function date_time  DateTimeFromDense(dense_time Dense);
 
 ////////////////////////
 // FILE PROPERTIES
-typedef struct _file_properties {
+typedef struct _file_props {
   u8 Readonly;
   b8 IsDir;
   size Size;
   dense_time Creation;
   dense_time Modified;
-} file_properties;
+} file_props;
+
+////////////////////////
+// FILE PROPERTIES
+typedef struct _file_iter {
+  byte Data[640];
+} file_iter;
+
+////////////////////////
+// DYNAMIC LIBRARY
+typedef struct _dyn_lib {
+  u64 Data;
+} dyn_lib;
 
 ////////////////////////
 // SYSTEM INTERFACE
@@ -564,16 +578,25 @@ enum _mem_flags {
 function void *SysMemReserve(size Size, u32 Flags);
 function void  SysMemRelease(void *Ptr, size Size);
 
+function date_time SysUniversalTime(void);
+function u64  SysGetTicks(void);
 function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
 function void SysSleep(u32 Milliseconds);
 
-function file_properties SysGetFileProps(str8 Path);
 function str8 SysOpenFile  (pool *Pool,  str8 Path);
 function b32  SysSaveFile  (str8  Data,  str8 Path);
 function b32  SysRenameFile(str8  Old,   str8 New);
 function b32  SysDeleteFile(str8  Path);
-function b32  SysCreateDir (str8  Path);
-function b32  SysDeleteDir (str8  Path);
+function b32 SysCreateDir  (str8 Path);
+function b32 SysDeleteDir  (str8 Path);
+function file_props SysGetFileProps(str8 Path);
+function file_iter  SysInitFileIter(str8 Path);
+function b32        SysNextFileIter(pool *Pool, file_iter *Iter, str8 *NameOut, file_props *PropsOut);
+function void       SysKillFileIter(file_iter *Iter);
+
+function dyn_lib   SysLoadLib(str8 Path);
+function void_proc SysGetLibProc(dyn_lib Lib, c8 *Name);
+function void      SysReleaseLib(dyn_lib Lib);
 
 #endif//FOUNDATION_HEAD
 
@@ -1222,6 +1245,7 @@ function date_time DateTimeFromDense(dense_time Dense) {
 
 #undef function
 #define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
 #include "windows.h"
 #include "shellapi.h"
 #include "timeapi.h"
@@ -1235,16 +1259,12 @@ int main(void) {
   pool *Pool = PoolReserve(0);
 
   LARGE_INTEGER PerfFrequency = {0};
-  if (!QueryPerformanceFrequency(&PerfFrequency)) {
-    // fprintf(stderr, "Could not retrieve performance frequency.");
-    return false;
-  }
+  if (!QueryPerformanceFrequency(&PerfFrequency))
+    fprintf(stderr, "Could not retrieve performance frequency.");
   timeBeginPeriod(1);
   LARGE_INTEGER PerfCounter = {0};
-  if (!QueryPerformanceCounter(&PerfCounter)) {
-    // fprintf(stderr, "Could not retrieve performance counter.");
-    return false;
-  }
+  if (!QueryPerformanceCounter(&PerfCounter))
+    fprintf(stderr, "Could not retrieve performance counter.");
 
   GlobalWin32TicksPerSecond = PerfFrequency.QuadPart;
   GlobalWin32TicksUponStart = PerfCounter.QuadPart;
@@ -1259,6 +1279,7 @@ int main(void) {
 
   return Res;
 }
+
 function void SysAbort(i32 Code) {
   ExitProcess(Code);
 }
@@ -1283,6 +1304,15 @@ function void SysMemRelease(void *Ptr, size Size) {
 
 ////////////////////////
 // TIME
+function date_time SysUniversalTime(void) {
+  Todo();
+}
+function u64 SysGetTicks(void) {
+  LARGE_INTEGER PerfCounter = {0};
+  if (QueryPerformanceCounter(&PerfCounter))
+    return PerfCounter.QuadPart;
+  return -1;
+}
 function u64 SysGetMicroseconds(void) {
   LARGE_INTEGER PerfCounter = {0};
   if (QueryPerformanceCounter(&PerfCounter))
@@ -1325,26 +1355,6 @@ function dense_time _Win32DenseTimeFromFileTime(FILETIME *FileTime){
 
 ////////////////////////
 // FILES
-function file_properties SysGetFileProps(str8 Path) {
-  file_properties Res = {0};
-
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
-  str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
-
-  WIN32_FILE_ATTRIBUTE_DATA Attributes = {0};
-  if (GetFileAttributesExW(cast(WCHAR*, PathUtf16.Ptr), GetFileExInfoStandard, &Attributes)) {
-    Res.Readonly = Attributes.dwFileAttributes & FILE_ATTRIBUTE_READONLY;
-    Res.IsDir    = Attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
-    Res.Size     = ((u64)Attributes.nFileSizeHigh << 32) | (u64)Attributes.nFileSizeLow;;
-    Res.Creation = _Win32DenseTimeFromFileTime(&Attributes.ftCreationTime);
-    Res.Modified = _Win32DenseTimeFromFileTime(&Attributes.ftLastWriteTime);
-  }
-
-  EndPoolSnapshot(Snap);
-
-  return Res;
-}
-
 function str8 SysOpenFile(pool *Pool, str8 Path) {
   str8 Res = {0};
 
@@ -1446,6 +1456,95 @@ function b32 SysDeleteDir(str8 Path) {
   return Success;
 }
 
+function file_props SysGetFileProps(str8 Path) {
+  file_props Res = {0};
+
+  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
+
+  WIN32_FILE_ATTRIBUTE_DATA Attributes = {0};
+  if (GetFileAttributesExW(cast(WCHAR*, PathUtf16.Ptr), GetFileExInfoStandard, &Attributes)) {
+    Res.Readonly = Attributes.dwFileAttributes & FILE_ATTRIBUTE_READONLY;
+    Res.IsDir    = Attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+    Res.Size     = ((u64)Attributes.nFileSizeHigh << 32) | (u64)Attributes.nFileSizeLow;;
+    Res.Creation = _Win32DenseTimeFromFileTime(&Attributes.ftCreationTime);
+    Res.Modified = _Win32DenseTimeFromFileTime(&Attributes.ftLastWriteTime);
+  }
+
+  EndPoolSnapshot(Snap);
+
+  return Res;
+}
+
+struct _win32_file_iter {
+  HANDLE           DirHandle;
+  WIN32_FIND_DATAW FindData;
+  b32              Finished;
+};
+function file_iter SysInitFileIter(str8 Path) {
+  file_iter Res = {0};
+
+  struct _win32_file_iter *Win32Iter = cast(struct _win32_file_iter*, &Res);
+  pool_snap  Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  str16      PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
+  Win32Iter->DirHandle = FindFirstFileW(cast(WCHAR*, PathUtf16.Ptr), &Win32Iter->FindData);
+
+  EndPoolSnapshot(Snap);
+
+  return Res;
+}
+function b32 SysNextFileIter(pool *Pool, file_iter *Iter, str8 *NameOut, file_props *PropsOut) {
+  b32 Res = false;
+
+  struct _win32_file_iter *Win32Iter = cast(struct _win32_file_iter*, &Iter);
+  if (Win32Iter->DirHandle != 0 && Win32Iter->DirHandle != INVALID_HANDLE_VALUE) {
+    while (!Win32Iter->Finished) {
+      WCHAR *Filename = Win32Iter->FindData.cFileName;
+      b32 ShouldEmit  = !(Filename[0] == '.' && Filename[1] == 0) && !(Filename[0] == '.' && Filename[1] == '.' && Filename[2] == 0);
+      WIN32_FIND_DATAW Data = {0};
+      if (ShouldEmit)
+        memcpy(&Data, Win32Iter->FindData, sizeof(WIN32_FIND_DATAW));
+      if (!FindNextFileW(Win32Iter->DirHandle, Win32Iter->FindData))
+        Win32Iter->Finished = true;
+      if (ShouldEmit) {
+        *NameOut = ConvertStr16ToStr8(Pool, Str16Cstr(cast(c16*, Data.cFileName)));
+        PropsOut->Readonly = Data.dwFileAttributes & FILE_ATTRIBUTE_READONLY;
+        PropsOut->IsDir    = Data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+        PropsOut->Size     = ((u64)Data.nFileSizeHigh << 32) | (u64)Data.nFileSizeLow;;
+        PropsOut->Creation = _Win32DenseTimeFromFileTime(&Data.ftCreationTime);
+        PropsOut->Modified = _Win32DenseTimeFromFileTime(&Data.ftLastWriteTime);
+        Res = true;
+        break;
+      }
+    }
+  }
+
+  return Res;
+}
+function void SysKillFileIter(file_iter *Iter) {
+  struct _win32_file_iter *Win32Iter = cast(struct _win32_file_iter*, &Iter);
+  if (Win32Iter->DirHandle != 0 && Win32Iter->DirHandle != INVALID_HANDLE_VALUE)
+    FindClose(Win32Iter->DirHandle);
+}
+
+function dyn_lib SysLoadLib(str8 Path) {
+  dyn_lib   Res       = 0;
+  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
+  Res.Data = cast(u64, LoadLibraryW(cast(WCHAR*, PathUtf16.Ptr)));
+  EndPoolSnapshot(Snap);
+  return Res;
+}
+function void_proc SysGetLibProc(dyn_lib Lib, c8 *Name) {
+  HMODULE Module = cast(HMODULE, Lib.Data);
+  void_proc *Res = cast(void_proc, GetProcAddress(Module, Name));
+  return Res;
+}
+function void SysReleaseLib(dyn_lib Lib) {
+  HMODULE Module = cast(HMODULE, Lib.Data);
+  FreeLibrary(Module);
+}
+
 #elif defined(OS_LNX)
 
 function void SysAbort(i32 Code);
@@ -1462,7 +1561,7 @@ function void SysSleep(u32 Milliseconds);
 
 ////////////////////////
 // FILES
-function file_properties SysGetFileProps(str8 Path);
+function file_props SysGetFileProps(str8 Path);
 function str8 SysOpenFile  (pool *Pool,  str8 Path);
 function b32  SysSaveFile  (str8  Data,  str8 Path);
 function b32  SysRenameFile(str8  Old,   str8 New);
@@ -1486,7 +1585,7 @@ function void SysSleep(u32 Milliseconds);
 
 ////////////////////////
 // FILES
-function file_properties SysGetFileProps(str8 Path);
+function file_props SysGetFileProps(str8 Path);
 function str8 SysOpenFile  (pool *Pool,  str8 Path);
 function b32  SysSaveFile  (str8  Data,  str8 Path);
 function b32  SysRenameFile(str8  Old,   str8 New);
