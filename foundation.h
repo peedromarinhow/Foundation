@@ -593,6 +593,7 @@ function void       SysReleaseLib(dyn_lib Lib);
 
 typedef struct _wnd {
   b32 Finish;
+  r64 FrameDelta;
 } wnd;
 function wnd *SysInitWnd(void);
 function void SysKillWnd(wnd *Wnd);
@@ -1252,9 +1253,9 @@ function date_time DateTimeFromDense(dense_time Dense) {
 #include "timeapi.h"
 #define function static
 
-global pool *GlobalWin32Pool;
-global u64   GlobalWin32TicksPerSecond;
-global u64   GlobalWin32TicksUponStart;
+global pool *_GlobalWin32Pool;
+global u64   _GlobalWin32TicksPerSecond;
+global u64   _GlobalWin32TicksUponStart;
 
 int main(void) {
   pool *Pool = PoolReserve(0);
@@ -1267,16 +1268,16 @@ int main(void) {
   if (!QueryPerformanceCounter(&PerfCounter))
     fprintf(stderr, "Could not retrieve performance counter.");
 
-  GlobalWin32TicksPerSecond = PerfFrequency.QuadPart;
-  GlobalWin32TicksUponStart = PerfCounter.QuadPart;
-  GlobalWin32Pool           = Pool;
+  _GlobalWin32TicksPerSecond = PerfFrequency.QuadPart;
+  _GlobalWin32TicksUponStart = PerfCounter.QuadPart;
+  _GlobalWin32Pool           = Pool;
 
   str16 ArgStrUtf16 = Str16Cstr(GetCommandLineW());
   str8  ArgStr      = ConvertStr16ToStr8(Pool, ArgStrUtf16);
 
   i32 Res = Main(ArgStr);
 
-  PoolRelease(GlobalWin32Pool);
+  PoolRelease(_GlobalWin32Pool);
 
   return Res;
 }
@@ -1350,7 +1351,7 @@ function u64 SysGetTicks(void) {
 function u64 SysGetMicroseconds(void) {
   LARGE_INTEGER PerfCounter = {0};
   if (QueryPerformanceCounter(&PerfCounter))
-    return PerfCounter.QuadPart*Million(1)/GlobalWin32TicksPerSecond;
+    return PerfCounter.QuadPart*Million(1)/_GlobalWin32TicksPerSecond;
   return -1;
 }
 function void SysSleep(u32 Milliseconds) {
@@ -1362,7 +1363,7 @@ function void SysSleep(u32 Milliseconds) {
 function str8 SysOpenFile(pool *Pool, str8 Path) {
   str8 Res = {0};
 
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
 
   HANDLE File = CreateFileW(cast(WCHAR*, PathUtf16.Ptr), GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
@@ -1405,7 +1406,7 @@ function str8 SysOpenFile(pool *Pool, str8 Path) {
 function b32 SysSaveFile(str8 Data, str8 Path) {
   b32 Success = false;
 
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
 
   HANDLE File = CreateFileW(cast(WCHAR*, PathUtf16.Ptr), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
@@ -1431,7 +1432,7 @@ function b32 SysSaveFile(str8 Data, str8 Path) {
   return Success;
 }
 function b32 SysRenameFile(str8 Old, str8 New) {
-  pool_snap Snap     = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap     = GetPoolSnapshot(_GlobalWin32Pool);
   str16     OldUtf16 = ConvertStr8ToStr16(Snap.Pool, Old);
   str16     NewUtf16 = ConvertStr8ToStr16(Snap.Pool, New);
   b32       Success  = MoveFileW(cast(WCHAR*, OldUtf16.Ptr), cast(WCHAR*, NewUtf16.Ptr));
@@ -1439,21 +1440,21 @@ function b32 SysRenameFile(str8 Old, str8 New) {
   return Success;
 }
 function b32 SysDeleteFile(str8 Path) {
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
   b32       Success   = DeleteFileW(cast(WCHAR*, PathUtf16.Ptr));
   EndPoolSnapshot(Snap);
   return Success;
 }
 function b32 SysCreateDir(str8 Path) {
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
   b32       Success   = CreateDirectoryW(cast(WCHAR*, PathUtf16.Ptr), 0);
   EndPoolSnapshot(Snap);
   return Success;
 }
 function b32 SysDeleteDir(str8 Path) {
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
   b32       Success   = RemoveDirectoryW(cast(WCHAR*, PathUtf16.Ptr));
   EndPoolSnapshot(Snap);
@@ -1463,7 +1464,7 @@ function b32 SysDeleteDir(str8 Path) {
 function file_props SysGetFileProps(str8 Path) {
   file_props Res = {0};
 
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
 
   WIN32_FILE_ATTRIBUTE_DATA Attributes = {0};
@@ -1489,7 +1490,7 @@ function file_iter SysInitFileIter(str8 Path) {
   file_iter Res = {0};
 
   struct _win32_file_iter *Win32Iter = cast(struct _win32_file_iter*, &Res);
-  pool_snap  Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap  Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16      PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
   Win32Iter->DirHandle = FindFirstFileW(cast(WCHAR*, PathUtf16.Ptr), &Win32Iter->FindData);
 
@@ -1533,7 +1534,7 @@ function void SysKillFileIter(file_iter *Iter) {
 
 function dyn_lib SysLoadLib(str8 Path) {
   dyn_lib   Res       = {0};
-  pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
+  pool_snap Snap      = GetPoolSnapshot(_GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
   Res.Data = cast(u64, LoadLibraryW(cast(WCHAR*, PathUtf16.Ptr)));
   EndPoolSnapshot(Snap);
@@ -1552,27 +1553,32 @@ function void SysReleaseLib(dyn_lib Lib) {
 ////////////////////////
 // WINDOW
 struct _win32_wnd {
-  void *MainFiber;
-  void *MsgFiber;
-  HINSTANCE Instance;
-  HWND      Handle;
-  HDC       DeviceCtx;
-  wnd Wnd;
+  void           *MainFiber;
+  void           *MsgFiber;
+  HINSTANCE       Instance;
+  HWND            Handle;
+  HDC             DeviceCtx;
+  WINDOWPLACEMENT WndPos;
+  MONITORINFO     MonitorInfo;
+  BYTE            KeyboardState[256];
+
+  u64 FrameStartTicks;
   b32 Used;
+  wnd Wnd;
 };
 
 #if !defined(NO_GFX)
-global struct _win32_wnd _Win32Wnd;
+global struct _win32_wnd _GlobalWin32Wnd;
 #endif
 
 function LRESULT CALLBACK _Win32WindowProc(HWND Handle, UINT Msg, WPARAM wParam, LPARAM lParam) {
   LRESULT Result = 0;
   switch (Msg) {
     case WM_DESTROY:
-      _Win32Wnd.Wnd.Finish = true;
+      _GlobalWin32Wnd.Wnd.Finish = true;
       break;
     case WM_TIMER:
-      SwitchToFiber(_Win32Wnd.MainFiber);
+      SwitchToFiber(_GlobalWin32Wnd.MainFiber);
       break;
     case WM_ENTERMENULOOP:
     case WM_ENTERSIZEMOVE:
@@ -1584,54 +1590,98 @@ function LRESULT CALLBACK _Win32WindowProc(HWND Handle, UINT Msg, WPARAM wParam,
       break;
     default:
       Result = DefWindowProcW(Handle, Msg, wParam, lParam);
+      break;
   }
   return Result;
 }
-function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
+function void CALLBACK _Win32MessageFiberProc(void *Foo) {
   while (true) {
     MSG Msg;
     while (PeekMessage(&Msg, 0, 0, 0, PM_REMOVE)) {
       TranslateMessage(&Msg);
       DispatchMessage(&Msg);
     }
-    SwitchToFiber(MainFiber);
+    SwitchToFiber(_GlobalWin32Wnd.MainFiber);
   }
 }
 
 function wnd *SysInitWnd(void) {
-  if (_Win32Wnd.Used)
-    return &_Win32Wnd.Wnd;
+  if (_GlobalWin32Wnd.Used)
+    return &_GlobalWin32Wnd.Wnd;
 
-  _Win32Wnd.Instance  = GetModuleHandleW(null);
-  _Win32Wnd.MainFiber = ConvertThreadToFiber(0);
-  _Win32Wnd.MsgFiber  = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MessageFiberProc, _Win32Wnd.MainFiber);
+  _GlobalWin32Wnd.Instance  = GetModuleHandleW(null);
+  _GlobalWin32Wnd.MainFiber = ConvertThreadToFiber(0);
+  _GlobalWin32Wnd.MsgFiber  = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MessageFiberProc, null);
 
-  WNDCLASSW Class = {0};
+  _GlobalWin32Wnd.WndPos.length      = sizeof(_GlobalWin32Wnd.WndPos);
+  _GlobalWin32Wnd.MonitorInfo.cbSize = sizeof(_GlobalWin32Wnd.MonitorInfo);
+
+  WNDCLASSW Class     = {0};
   Class.lpfnWndProc   = _Win32WindowProc;
-  Class.hInstance     = _Win32Wnd.Instance;
+  Class.hInstance     = _GlobalWin32Wnd.Instance;
   Class.hCursor       = LoadCursor(0, IDC_ARROW);
   Class.lpszClassName = L"class";
   RegisterClassW(&Class);
+  
+  i32 WndX = 500;
+  i32 WndY = 500;
+  i32 WndW = 500;
+  i32 WndH = 500;
+  RECT WindowRect = {.right = WndW, .bottom = WndW};
+  if (AdjustWindowRect(&WindowRect, WS_OVERLAPPEDWINDOW, 0)) {
+    WndW = WindowRect.right  - WindowRect.left;
+    WndH = WindowRect.bottom - WindowRect.top;
+  }
+  _GlobalWin32Wnd.Handle    = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, WndX, WndY, WndW, WndH, 0, 0, _GlobalWin32Wnd.Instance, 0);
+  _GlobalWin32Wnd.DeviceCtx = GetDC(_GlobalWin32Wnd.Handle);
+  _GlobalWin32Wnd.Used      = true;
 
-  _Win32Wnd.Handle    = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, _Win32Wnd.Instance, 0);
-  _Win32Wnd.DeviceCtx = GetDC(_Win32Wnd.Handle);
-  _Win32Wnd.Used      = true;
+  ShowWindow(_GlobalWin32Wnd.Handle, SW_SHOWDEFAULT);
 
-  ShowWindow(_Win32Wnd.Handle, SW_SHOWDEFAULT);
-
-  return &_Win32Wnd.Wnd;
+  return &_GlobalWin32Wnd.Wnd;
 }
 function void SysKillWnd(wnd *Wnd) {
-  ShowWindow(_Win32Wnd.Handle, SW_HIDE);
-  ReleaseDC(_Win32Wnd.Handle, _Win32Wnd.DeviceCtx);
-  _Win32Wnd.Used = false;
+  ShowWindow(_GlobalWin32Wnd.Handle, SW_HIDE);
+  ReleaseDC(_GlobalWin32Wnd.Handle, _GlobalWin32Wnd.DeviceCtx);
+  _GlobalWin32Wnd.Used = false;
 }
 function void SysWndPull(wnd *Wnd) {
-  SwitchToFiber(_Win32Wnd.MsgFiber);
-  SwapBuffers(_Win32Wnd.DeviceCtx);
+  LARGE_INTEGER PerfCounter = {0};
+  QueryPerformanceCounter(&PerfCounter);
+  _GlobalWin32Wnd.FrameStartTicks = PerfCounter.QuadPart;
+
+  SwitchToFiber(_GlobalWin32Wnd.MsgFiber);
+
+  GetKeyboardState(_GlobalWin32Wnd.KeyboardState);
+
+  if (_GlobalWin32Wnd.KeyboardState[VK_F11]) {
+    DWORD Style = GetWindowLong(_GlobalWin32Wnd.Handle, GWL_STYLE);
+    if (Style & WS_OVERLAPPEDWINDOW && GetWindowPlacement(_GlobalWin32Wnd.Handle, &_GlobalWin32Wnd.WndPos) && GetMonitorInfo(MonitorFromWindow(_GlobalWin32Wnd.Handle, MONITOR_DEFAULTTOPRIMARY), &_GlobalWin32Wnd.MonitorInfo)) {
+      SetWindowLong(_GlobalWin32Wnd.Handle, GWL_STYLE, Style & ~WS_OVERLAPPEDWINDOW);
+      SetWindowPos(
+        _GlobalWin32Wnd.Handle, HWND_TOP,
+        _GlobalWin32Wnd.MonitorInfo.rcMonitor.left,    _GlobalWin32Wnd.MonitorInfo.rcMonitor.top,
+        _GlobalWin32Wnd.MonitorInfo.rcMonitor.right  - _GlobalWin32Wnd.MonitorInfo.rcMonitor.left,
+        _GlobalWin32Wnd.MonitorInfo.rcMonitor.bottom - _GlobalWin32Wnd.MonitorInfo.rcMonitor.top,
+        SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+      );
+    }
+    else {
+      SetWindowLong(_GlobalWin32Wnd.Handle, GWL_STYLE, Style | WS_OVERLAPPEDWINDOW);
+      SetWindowPlacement(_GlobalWin32Wnd.Handle, &_GlobalWin32Wnd.WndPos);
+      SetWindowPos(
+        _GlobalWin32Wnd.Handle, null, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+      );
+    }
+  }
 }
 function void SysWndPush(wnd *Wnd) {
+  SwapBuffers(_GlobalWin32Wnd.DeviceCtx);
 
+  LARGE_INTEGER PerfCounter = {0};
+  QueryPerformanceCounter(&PerfCounter);
+  _GlobalWin32Wnd.Wnd.FrameDelta = (r64)(PerfCounter.QuadPart - _GlobalWin32Wnd.FrameStartTicks)/(r64)_GlobalWin32TicksPerSecond;
 }
 
 #elif defined(OS_LNX)
