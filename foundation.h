@@ -543,28 +543,6 @@ function dense_time DenseTimeFromDate(date_time *Date);
 function date_time  DateTimeFromDense(dense_time Dense);
 
 ////////////////////////
-// FILE PROPERTIES
-typedef struct _file_props {
-  u8 Readonly;
-  b8 IsDir;
-  size Size;
-  dense_time Creation;
-  dense_time Modified;
-} file_props;
-
-////////////////////////
-// FILE PROPERTIES
-typedef struct _file_iter {
-  byte Data[640];
-} file_iter;
-
-////////////////////////
-// DYNAMIC LIBRARY
-typedef struct _dyn_lib {
-  u64 Data;
-} dyn_lib;
-
-////////////////////////
 // SYSTEM INTERFACE
 function i32 Main(str8 ArgStr);
 
@@ -589,14 +567,37 @@ function b32  SysRenameFile(str8  Old,   str8 New);
 function b32  SysDeleteFile(str8  Path);
 function b32 SysCreateDir  (str8 Path);
 function b32 SysDeleteDir  (str8 Path);
+
+typedef struct _file_props {
+  u8 Readonly;
+  b8 IsDir;
+  size Size;
+  dense_time Creation;
+  dense_time Modified;
+} file_props;
 function file_props SysGetFileProps(str8 Path);
+
+typedef struct _file_iter {
+  byte Data[640];
+} file_iter;
 function file_iter  SysInitFileIter(str8 Path);
 function b32        SysNextFileIter(pool *Pool, file_iter *Iter, str8 *NameOut, file_props *PropsOut);
 function void       SysKillFileIter(file_iter *Iter);
 
-function dyn_lib   SysLoadLib(str8 Path);
-function void_proc SysGetLibProc(dyn_lib Lib, c8 *Name);
-function void      SysReleaseLib(dyn_lib Lib);
+typedef struct _dyn_lib {
+  u64 Data;
+} dyn_lib;
+function dyn_lib    SysLoadLib(str8 Path);
+function void_proc *SysGetLibProc(dyn_lib Lib, c8 *Name);
+function void       SysReleaseLib(dyn_lib Lib);
+
+typedef struct _wnd {
+  b32 Finish;
+} wnd;
+function wnd *SysInitWnd(void);
+function void SysKillWnd(wnd *Wnd);
+function void SysWndPull(wnd *Wnd);
+function void SysWndPush(wnd *Wnd);
 
 #endif//FOUNDATION_HEAD
 
@@ -1304,8 +1305,41 @@ function void SysMemRelease(void *Ptr, size Size) {
 
 ////////////////////////
 // TIME
+function date_time _Win32ConvertSysTimeToDateTime(SYSTEMTIME *Time){
+    date_time Res = {0};
+    Res.Year  = Time->wYear;
+    Res.Month = (u8)Time->wMonth;
+    Res.Day   = Time->wDay;
+    Res.Hour  = Time->wHour;
+    Res.Min   = Time->wMinute;
+    Res.Sec   = Time->wSecond;
+    Res.Msec  = Time->wMilliseconds;
+    return(Res);
+}
+function SYSTEMTIME _Win32ConvertDateTimeToSysTime(date_time *Time){
+    SYSTEMTIME Res = {0};
+    Res.wYear         = Time->Year;
+    Res.wMonth        = Time->Month;
+    Res.wDay          = Time->Day;
+    Res.wHour         = Time->Hour;
+    Res.wMinute       = Time->Min;
+    Res.wSecond       = Time->Sec;
+    Res.wMilliseconds = Time->Msec;
+    return(Res);
+}
+function dense_time _Win32ConvertFileTimeToDenseTime(FILETIME *FileTime){
+    SYSTEMTIME SysTime = {0};
+    FileTimeToSystemTime(FileTime, &SysTime);
+    date_time  DateTime = _Win32ConvertSysTimeToDateTime(&SysTime);
+    dense_time Res      = DenseTimeFromDate(&DateTime);
+    return(Res);
+}
+
 function date_time SysUniversalTime(void) {
-  Todo();
+  SYSTEMTIME SysTime = {0};
+  GetSystemTime(&SysTime);
+  date_time Res = _Win32ConvertSysTimeToDateTime(&SysTime);
+  return Res;
 }
 function u64 SysGetTicks(void) {
   LARGE_INTEGER PerfCounter = {0};
@@ -1321,36 +1355,6 @@ function u64 SysGetMicroseconds(void) {
 }
 function void SysSleep(u32 Milliseconds) {
   Sleep(Milliseconds);
-}
-
-function date_time _Win32DateTimeFromSysTime(SYSTEMTIME *Time){
-    date_time Res = {0};
-    Res.Year  = Time->wYear;
-    Res.Month = (u8)Time->wMonth;
-    Res.Day   = Time->wDay;
-    Res.Hour  = Time->wHour;
-    Res.Min   = Time->wMinute;
-    Res.Sec   = Time->wSecond;
-    Res.Msec  = Time->wMilliseconds;
-    return(Res);
-}
-function SYSTEMTIME _Win32SysTimeFromDateTime(date_time *Time){
-    SYSTEMTIME Res = {0};
-    Res.wYear         = Time->Year;
-    Res.wMonth        = Time->Month;
-    Res.wDay          = Time->Day;
-    Res.wHour         = Time->Hour;
-    Res.wMinute       = Time->Min;
-    Res.wSecond       = Time->Sec;
-    Res.wMilliseconds = Time->Msec;
-    return(Res);
-}
-function dense_time _Win32DenseTimeFromFileTime(FILETIME *FileTime){
-    SYSTEMTIME SysTime = {0};
-    FileTimeToSystemTime(FileTime, &SysTime);
-    date_time  DateTime = _Win32DateTimeFromSysTime(&SysTime);
-    dense_time Res      = DenseTimeFromDate(&DateTime);
-    return(Res);
 }
 
 ////////////////////////
@@ -1467,8 +1471,8 @@ function file_props SysGetFileProps(str8 Path) {
     Res.Readonly = Attributes.dwFileAttributes & FILE_ATTRIBUTE_READONLY;
     Res.IsDir    = Attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
     Res.Size     = ((u64)Attributes.nFileSizeHigh << 32) | (u64)Attributes.nFileSizeLow;;
-    Res.Creation = _Win32DenseTimeFromFileTime(&Attributes.ftCreationTime);
-    Res.Modified = _Win32DenseTimeFromFileTime(&Attributes.ftLastWriteTime);
+    Res.Creation = _Win32ConvertFileTimeToDenseTime(&Attributes.ftCreationTime);
+    Res.Modified = _Win32ConvertFileTimeToDenseTime(&Attributes.ftLastWriteTime);
   }
 
   EndPoolSnapshot(Snap);
@@ -1503,16 +1507,16 @@ function b32 SysNextFileIter(pool *Pool, file_iter *Iter, str8 *NameOut, file_pr
       b32 ShouldEmit  = !(Filename[0] == '.' && Filename[1] == 0) && !(Filename[0] == '.' && Filename[1] == '.' && Filename[2] == 0);
       WIN32_FIND_DATAW Data = {0};
       if (ShouldEmit)
-        memcpy(&Data, Win32Iter->FindData, sizeof(WIN32_FIND_DATAW));
-      if (!FindNextFileW(Win32Iter->DirHandle, Win32Iter->FindData))
+        memcpy(&Data, &Win32Iter->FindData, sizeof(WIN32_FIND_DATAW));
+      if (!FindNextFileW(Win32Iter->DirHandle, &Win32Iter->FindData))
         Win32Iter->Finished = true;
       if (ShouldEmit) {
         *NameOut = ConvertStr16ToStr8(Pool, Str16Cstr(cast(c16*, Data.cFileName)));
         PropsOut->Readonly = Data.dwFileAttributes & FILE_ATTRIBUTE_READONLY;
         PropsOut->IsDir    = Data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
         PropsOut->Size     = ((u64)Data.nFileSizeHigh << 32) | (u64)Data.nFileSizeLow;;
-        PropsOut->Creation = _Win32DenseTimeFromFileTime(&Data.ftCreationTime);
-        PropsOut->Modified = _Win32DenseTimeFromFileTime(&Data.ftLastWriteTime);
+        PropsOut->Creation = _Win32ConvertFileTimeToDenseTime(&Data.ftCreationTime);
+        PropsOut->Modified = _Win32ConvertFileTimeToDenseTime(&Data.ftLastWriteTime);
         Res = true;
         break;
       }
@@ -1528,21 +1532,106 @@ function void SysKillFileIter(file_iter *Iter) {
 }
 
 function dyn_lib SysLoadLib(str8 Path) {
-  dyn_lib   Res       = 0;
+  dyn_lib   Res       = {0};
   pool_snap Snap      = GetPoolSnapshot(GlobalWin32Pool);
   str16     PathUtf16 = ConvertStr8ToStr16(Snap.Pool, Path);
   Res.Data = cast(u64, LoadLibraryW(cast(WCHAR*, PathUtf16.Ptr)));
   EndPoolSnapshot(Snap);
   return Res;
 }
-function void_proc SysGetLibProc(dyn_lib Lib, c8 *Name) {
+function void_proc *SysGetLibProc(dyn_lib Lib, c8 *Name) {
   HMODULE Module = cast(HMODULE, Lib.Data);
-  void_proc *Res = cast(void_proc, GetProcAddress(Module, Name));
+  void_proc *Res = cast(void_proc*, GetProcAddress(Module, Name));
   return Res;
 }
 function void SysReleaseLib(dyn_lib Lib) {
   HMODULE Module = cast(HMODULE, Lib.Data);
   FreeLibrary(Module);
+}
+
+////////////////////////
+// WINDOW
+struct _win32_wnd {
+  void *MainFiber;
+  void *MsgFiber;
+  HINSTANCE Instance;
+  HWND      Handle;
+  HDC       DeviceCtx;
+  wnd Wnd;
+  b32 Used;
+};
+
+#if !defined(NO_GFX)
+global struct _win32_wnd _Win32Wnd;
+#endif
+
+function LRESULT CALLBACK _Win32WindowProc(HWND Handle, UINT Msg, WPARAM wParam, LPARAM lParam) {
+  LRESULT Result = 0;
+  switch (Msg) {
+    case WM_DESTROY:
+      _Win32Wnd.Wnd.Finish = true;
+      break;
+    case WM_TIMER:
+      SwitchToFiber(_Win32Wnd.MainFiber);
+      break;
+    case WM_ENTERMENULOOP:
+    case WM_ENTERSIZEMOVE:
+      SetTimer(Handle, 1, 1, 0);
+      break;
+    case WM_EXITMENULOOP:
+    case WM_EXITSIZEMOVE:
+      KillTimer(Handle, 1);
+      break;
+    default:
+      Result = DefWindowProcW(Handle, Msg, wParam, lParam);
+  }
+  return Result;
+}
+function void CALLBACK _Win32MessageFiberProc(void *MainFiber) {
+  while (true) {
+    MSG Msg;
+    while (PeekMessage(&Msg, 0, 0, 0, PM_REMOVE)) {
+      TranslateMessage(&Msg);
+      DispatchMessage(&Msg);
+    }
+    SwitchToFiber(MainFiber);
+  }
+}
+
+function wnd *SysInitWnd(void) {
+  if (_Win32Wnd.Used)
+    return &_Win32Wnd.Wnd;
+
+  _Win32Wnd.Instance  = GetModuleHandleW(null);
+  _Win32Wnd.MainFiber = ConvertThreadToFiber(0);
+  _Win32Wnd.MsgFiber  = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MessageFiberProc, _Win32Wnd.MainFiber);
+
+  WNDCLASSW Class = {0};
+  Class.lpfnWndProc   = _Win32WindowProc;
+  Class.hInstance     = _Win32Wnd.Instance;
+  Class.hCursor       = LoadCursor(0, IDC_ARROW);
+  Class.lpszClassName = L"class";
+  RegisterClassW(&Class);
+
+  _Win32Wnd.Handle    = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, _Win32Wnd.Instance, 0);
+  _Win32Wnd.DeviceCtx = GetDC(_Win32Wnd.Handle);
+  _Win32Wnd.Used      = true;
+
+  ShowWindow(_Win32Wnd.Handle, SW_SHOWDEFAULT);
+
+  return &_Win32Wnd.Wnd;
+}
+function void SysKillWnd(wnd *Wnd) {
+  ShowWindow(_Win32Wnd.Handle, SW_HIDE);
+  ReleaseDC(_Win32Wnd.Handle, _Win32Wnd.DeviceCtx);
+  _Win32Wnd.Used = false;
+}
+function void SysWndPull(wnd *Wnd) {
+  SwitchToFiber(_Win32Wnd.MsgFiber);
+  SwapBuffers(_Win32Wnd.DeviceCtx);
+}
+function void SysWndPush(wnd *Wnd) {
+
 }
 
 #elif defined(OS_LNX)
