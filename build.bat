@@ -5,7 +5,7 @@ set Opts=-g -Wno-deprecated-declarations -Wno-pointer-sign -Wno-writable-strings
 set Defs=-DENABLE_ASSERT=1 -DDEBUG=1
 set Srcs=../main.c -o main.exe
 set Incs=-I.
-set Libs=-luser32 -lwinmm -lgdi32
+set Libs=-lkernel32 -luser32 -lwinmm -lgdi32
 
 call %vcvarsall% x64
 
