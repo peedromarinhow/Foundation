@@ -155,7 +155,12 @@
 #define ItrPtr(i, s, e) for (size (i) = 0; (s) < (e); (i) += 1, (s)++)
 
 #define V2AddComps(v1, v2) (v1).x + (v1).x, (v1).y + (v2).y
+#define V3AddComps(v1, v2) (v1).x + (v1).x, (v1).y + (v2).y, (v1).z + (v2).z
+#define V4AddComps(v1, v2) (v1).z + (v2).w, (v1).x + (v1).x, (v1).y + (v2).y, (v1).z + (v2).z
+
 #define V2SubComps(v1, v2) (v1).x - (v1).x, (v1).y - (v2).y
+#define V3SubComps(v1, v2) (v1).x - (v1).x, (v1).y - (v2).y, (v1).z - (v2).z
+#define V4SubComps(v1, v2) (v1).w - (v1).w, (v1).x - (v1).x, (v1).y - (v2).y, (v1).z - (v2).z
 
 #define R1AddComps(r1, r2) Min(r1.Min, r2.Min), Max(r1.Max, r2.Max)
 #define R1SubComps(r1, r2) Max(r1.Min, r2.Min), Min(r1.Max, r2.Max)
@@ -260,6 +265,21 @@ typedef union _r32v2 {
   };
 	r32 c[2];
 } r32v2;
+typedef union _r32v3 {
+  struct {
+    r32 x, y, z;
+  };
+	r32 c[3];
+} r32v3;
+typedef union _r32v4 {
+  struct {
+    r32 w, x, y, z;
+  };
+  struct {
+    r32 r, g, b, a;
+  };
+	r32 c[4];
+} r32v4;
 
 typedef union _u64r1 {
   struct  {
@@ -343,12 +363,18 @@ function r64 R64Pow(r64 x, r64 p);
 
 inline i32v2 I32v2(i32 x, i32 y);
 inline r32v2 R32v2(r32 x, r32 y);
+inline r32v3 R32v3(r32 x, r32 y, r32 z);
+inline r32v4 R32v4(r32 w, r32 x, r32 y, r32 z);
 
 inline i32v2 I32v2Add(i32v2 v1, i32v2 v2);
 inline r32v2 R32v2Add(r32v2 v1, r32v2 v2);
+inline r32v3 R32v3Add(r32v3 v1, r32v3 v2);
+inline r32v4 R32v4Add(r32v4 v1, r32v4 v2);
 
 inline i32v2 I32v2Sub(i32v2 v1, i32v2 v2);
 inline r32v2 R32v2Sub(r32v2 v1, r32v2 v2);
+inline r32v3 R32v3Sub(r32v3 v1, r32v3 v2);
+inline r32v4 R32v4Sub(r32v4 v1, r32v4 v2);
 
 inline r32r1 R32r1(r32 Min, r32 Max);
 inline u64r1 U64r1(u64 Min, u64 Max);
@@ -595,7 +621,7 @@ typedef struct _wnd {
   b32 Finish;
   r64 FrameDelta;
 
-  byte Data[512];
+  r32 w, h;
 } wnd;
 function wnd *SysInitWnd(void);
 function void SysWndPull(wnd *Wnd);
@@ -730,12 +756,24 @@ inline r32v2 R32v2(r32 x, r32 y) {
   r32v2 Res = {x, y};
   return Res;
 }
+inline r32v3 R32v3(r32 x, r32 y, r32 z) {
+  r32v3 Res = {x, y, z};
+  return Res;
+}
+inline r32v4 R32v4(r32 w, r32 x, r32 y, r32 z) {
+  r32v4 Res = {w, x, y, z};
+  return Res;
+}
 
 inline i32v2 I32v2Add(i32v2 v1, i32v2 v2) { return I32v2(V2AddComps(v1, v2)); }
 inline r32v2 R32v2Add(r32v2 v1, r32v2 v2) { return R32v2(V2AddComps(v1, v2)); }
+inline r32v3 R32v3Add(r32v3 v1, r32v3 v2) { return R32v3(V3AddComps(v1, v2)); }
+inline r32v4 R32v4Add(r32v4 v1, r32v4 v2) { return R32v4(V4AddComps(v1, v2)); }
 
 inline i32v2 I32v2Sub(i32v2 v1, i32v2 v2) { return I32v2(V2SubComps(v1, v2)); }
 inline r32v2 R32v2Sub(r32v2 v1, r32v2 v2) { return R32v2(V2SubComps(v1, v2)); }
+inline r32v3 R32v3Sub(r32v3 v1, r32v3 v2) { return R32v3(V3SubComps(v1, v2)); }
+inline r32v4 R32v4Sub(r32v4 v1, r32v4 v2) { return R32v4(V4SubComps(v1, v2)); }
 
 inline r32r1 R32r1(r32 Min, r32 Max) {
   r32r1 Res = {Min, Max};
@@ -1552,28 +1590,29 @@ function void SysReleaseLib(dyn_lib Lib) {
 
 ////////////////////////
 // WINDOW
+function void _Win32OpenGlInit      (void);
+function void _Win32OpenGlBeginFrame(void);
+function void _Win32OpenGlEndFrame  (void);
+function void _Win32OpenGlWndKill   (void);
+
 struct _win32_wnd {
   void           *MainFiber;
   void           *MsgFiber;
   HINSTANCE       Instance;
   HWND            Handle;
   HDC             DeviceCtx;
-  WINDOWPLACEMENT WndPos;
-  MONITORINFO     MonitorInfo;
-  BYTE            KeyboardState[256];
   u64             FrameStartTicks;
-};
+} _GlobalWin32Wnd;
 
 function LRESULT CALLBACK _Win32WindowProc(HWND Handle, UINT Message, WPARAM wParam, LPARAM lParam) {
   LRESULT Result = 0;
   wnd *Wnd = cast(wnd*, GetWindowLongPtr(Handle, GWLP_USERDATA));
-  struct _win32_wnd *Win32Wnd = cast(struct _win32_wnd*, &Wnd->Data);
   switch (Message) {
     case WM_DESTROY:
       Wnd->Finish = true;
       break;
     case WM_TIMER:
-      SwitchToFiber(Win32Wnd->MainFiber);
+      SwitchToFiber(_GlobalWin32Wnd.MainFiber);
       break;
     case WM_ENTERMENULOOP:
     case WM_ENTERSIZEMOVE:
@@ -1601,98 +1640,215 @@ function void CALLBACK _Win32MsgFiberProc(void *MainFiber) {
 
 function wnd *SysInitWnd(void) {
   wnd *Wnd = PoolPush(_GlobalWin32Pool, sizeof(Wnd));
-  struct _win32_wnd *Win32Wnd = cast(struct _win32_wnd*, &Wnd->Data);
 
-  Win32Wnd->Instance  = GetModuleHandleW(null);
-  Win32Wnd->MainFiber = ConvertThreadToFiber(0);
-  Win32Wnd->MsgFiber  = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MsgFiberProc, Win32Wnd->MainFiber);
+  _GlobalWin32Wnd.Instance  = GetModuleHandleW(null);
+  _GlobalWin32Wnd.MainFiber = ConvertThreadToFiber(0);
+  _GlobalWin32Wnd.MsgFiber  = CreateFiber(0, (PFIBER_START_ROUTINE)_Win32MsgFiberProc, _GlobalWin32Wnd.MainFiber);
 
   WNDCLASSW Class = {0};
   Class.lpfnWndProc   = _Win32WindowProc;
-  Class.hInstance     = Win32Wnd->Instance;
+  Class.hInstance     = _GlobalWin32Wnd.Instance;
   Class.hCursor       = LoadCursor(0, IDC_ARROW);
   Class.lpszClassName = L"class";
   RegisterClassW(&Class);
 
-  Win32Wnd->Handle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Win32Wnd->Instance, 0);
-  Win32Wnd->DeviceCtx = GetDC(Win32Wnd->Handle);
+  _GlobalWin32Wnd.Handle = CreateWindowW(L"class", L"title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, _GlobalWin32Wnd.Instance, 0);
+  _GlobalWin32Wnd.DeviceCtx = GetDC(_GlobalWin32Wnd.Handle);
 
-  SetWindowLongPtr(Win32Wnd->Handle, GWLP_USERDATA, cast(LONG_PTR, Wnd));
-  ShowWindow(Win32Wnd->Handle, SW_SHOWDEFAULT);
+  SetWindowLongPtr(_GlobalWin32Wnd.Handle, GWLP_USERDATA, cast(LONG_PTR, Wnd));
+
+  _Win32OpenGlInit();
+
+  ShowWindow(_GlobalWin32Wnd.Handle, SW_SHOWDEFAULT);
 
   return Wnd;
 }
 function void SysWndPull(wnd *Wnd) {
-  struct _win32_wnd *Win32Wnd = cast(struct _win32_wnd*, &Wnd->Data);
+  _GlobalWin32Wnd.FrameStartTicks = SysGetTicks();
 
-  Win32Wnd->FrameStartTicks = SysGetTicks();
+  SwitchToFiber(_GlobalWin32Wnd.MsgFiber);
 
-  SwitchToFiber(Win32Wnd->MsgFiber);
-  GetKeyboardState(Win32Wnd->KeyboardState);
+  RECT ClientRect;
+  GetClientRect(_GlobalWin32Wnd.Handle, &ClientRect);
+  Wnd->w = ClientRect.right  - ClientRect.left;
+  Wnd->h = ClientRect.bottom - ClientRect.top;
+
+  _Win32OpenGlBeginFrame();
 }
 function void SysWndPush(wnd *Wnd) {
-  struct _win32_wnd *Win32Wnd = cast(struct _win32_wnd*, &Wnd->Data);
+  _Win32OpenGlEndFrame();
 
-  r64   FrameDelta    = cast(r64, SysGetTicks() - Win32Wnd->FrameStartTicks)/_GlobalWin32TicksPerSecond;
+  r64   FrameDelta    = cast(r64, SysGetTicks() - _GlobalWin32Wnd.FrameStartTicks)/_GlobalWin32TicksPerSecond;
   DWORD TimeToSleepMs = cast(DWORD, (1.0f/60.f - FrameDelta))*Thousand(1);
   if (TimeToSleepMs > 0) 
     Sleep(TimeToSleepMs);
 }
 function void SysKillWnd(wnd *Wnd) {
-  struct _win32_wnd *Win32Wnd = cast(struct _win32_wnd*, &Wnd->Data);
+  _Win32OpenGlWndKill();
 
-  ShowWindow(Win32Wnd->Handle, SW_HIDE);
-  ReleaseDC(Win32Wnd->Handle, Win32Wnd->DeviceCtx);
+  ShowWindow(_GlobalWin32Wnd.Handle, SW_HIDE);
+  ReleaseDC(_GlobalWin32Wnd.Handle, _GlobalWin32Wnd.DeviceCtx);
 }
 
-#elif defined(OS_LNX)
-
-function void SysAbort(i32 Code);
-
 ////////////////////////
-// MEMORY
-function void *SysMemReserve(size Size, u32 Flags);
-function void  SysMemRelease(void *Ptr, size Size);
+// OPENGL
+#undef function
+//.link: https://gist.github.com/mmozeiko/ed2ad27f75edf9c26053ce332a1f6647.
+// Also download https://www.khronos.org/registry/EGL/api/KHR/khrplatform.h and put in "KHR" folder.
+#include "download/glcorearb.h" //.link: https://www.khronos.org/registry/OpenGl/api/GL/glcorearb.h
+#include "download/glext.h"     //.link: https://www.khronos.org/registry/OpenGl/api/GL/glext.h
+#include "download/wglext.h"    //.link: https://www.khronos.org/registry/OpenGl/api/GL/wglext.h
+#define function static
 
-////////////////////////
-// TIME
-function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
-function void SysSleep(u32 Milliseconds);
+#define SELECTED_OPENGL_FUNCTIONS(Macro)                           \
+  Macro(PFNGLENABLEPROC,                  Enable)                  \
+  Macro(PFNGLBLENDFUNCSEPARATEPROC,       BlendFuncSeparate)       \
+  Macro(PFNGLVIEWPORTPROC,                Viewport)                \
+  Macro(PFNGLCLEARCOLORPROC,              ClearColor)              \
+  Macro(PFNGLCLEARPROC,                   Clear)                   \
+  Macro(PFNGLGENBUFFERSPROC,              GenBuffers)              \
+  Macro(PFNGLBUFFERSUBDATAPROC,           BufferSubData)           \
+  Macro(PFNGLBINDBUFFERPROC,              BindBuffer)              \
+  Macro(PFNGLBUFFERDATAPROC,              BufferData)              \
+  Macro(PFNGLCREATESHADERPROC,            CreateShader)            \
+  Macro(PFNGLSHADERSOURCEPROC,            ShaderSource)            \
+  Macro(PFNGLCOMPILESHADERPROC,           CompileShader)           \
+  Macro(PFNGLGETSHADERIVPROC,             GetShaderiv)             \
+  Macro(PFNGLGETSHADERINFOLOGPROC,        GetShaderInfoLog)        \
+  Macro(PFNGLCREATEPROGRAMPROC,           CreateProgram)           \
+  Macro(PFNGLATTACHSHADERPROC,            AttachShader)            \
+  Macro(PFNGLLINKPROGRAMPROC,             LinkProgram)             \
+  Macro(PFNGLGETPROGRAMIVPROC,            GetProgramiv)            \
+  Macro(PFNGLGETPROGRAMINFOLOGPROC,       GetProgramInfoLog)       \
+  Macro(PFNGLUSEPROGRAMPROC,              UseProgram)              \
+  Macro(PFNGLGETUNIFORMLOCATIONPROC,      GetUniformLocation)      \
+  Macro(PFNGLUNIFORM4FPROC,               Uniform4f)               \
+  Macro(PFNGLDELETESHADERPROC,            DeleteShader)            \
+  Macro(PFNGLVERTEXATTRIBPOINTERPROC,     VertexAttribPointer)     \
+  Macro(PFNGLVERTEXATTRIBDIVISORPROC,     VertexAttribDivisor)     \
+  Macro(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray) \
+  Macro(PFNGLGENVERTEXARRAYSPROC,         GenVertexArrays)         \
+  Macro(PFNGLBINDVERTEXARRAYPROC,         BindVertexArray)         \
+  Macro(PFNGLDRAWARRAYSPROC,              DrawArrays)              \
+  Macro(PFNGLDRAWARRAYSINSTANCEDPROC,     DrawArraysInstanced)     \
+  Macro(PFNGLDELETEVERTEXARRAYSPROC,      DeleteVertexArrays)      \
+  Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
+  Macro(PFNGLDELETEPROGRAMPROC,           DeleteProgram)           \
+  Macro(PFNGLGETERRORPROC,                GetError)                \
+  Macro(PFNGLUNIFORM2FPROC,               Uniform2f)
 
-////////////////////////
-// FILES
-function file_props SysGetFileProps(str8 Path);
-function str8 SysOpenFile  (pool *Pool,  str8 Path);
-function b32  SysSaveFile  (str8  Data,  str8 Path);
-function b32  SysRenameFile(str8  Old,   str8 New);
-function b32  SysDeleteFile(str8  Path);
-function b32  SysCreateDir (str8  Path);
-function b32  SysDeleteDir (str8  Path);
+#define Decl(type, Name) type Gl##Name;
+  SELECTED_OPENGL_FUNCTIONS(Decl)
+#undef Decl
 
-#elif defined(OS_MAC)
+typedef HGLRC wgl_create_context_proc  (HDC);
+typedef BOOL  wgl_delete_context_proc  (HGLRC);
+typedef BOOL  wgl_make_current_proc    (HDC, HGLRC);
+typedef PROC  wgl_get_proc_address_proc(LPCSTR);
 
-function void SysAbort(i32 Code);
+typedef BOOL  wgl_choose_pixel_format_arb_proc   (HDC, const int*, const float*, UINT, int*, UINT*);
+typedef HGLRC wgl_create_context_attribs_arb_proc(HDC, HGLRC, const int*);
 
-////////////////////////
-// MEMORY
-function void *SysMemReserve(size Size, u32 Flags);
-function void  SysMemRelease(void *Ptr, size Size);
+global wgl_make_current_proc   *_Win32GlMakeCurrentProc;
+global wgl_delete_context_proc *_Win32DeleteContextProc;
+global HGLRC                    _Win32GlobalHglrc;
 
-////////////////////////
-// TIME
-function u64  SysGetMicroseconds(void); //.note: Does not return 'dense_time'!
-function void SysSleep(u32 Milliseconds);
+//.link: https://www.khronos.org/opengl/wiki/Load_OpenGl_Functions
+function void *_Win32OpenGlGetAnyFuncAddress(wgl_get_proc_address_proc *WglGetProcAddressProc, HMODULE OpenGlModule, const c8 *Name) {
+  void *Proc = (void *)WglGetProcAddressProc(Name);
+  if (Proc == 0 || (Proc == (void*)0x1) || (Proc == (void*)0x2) || (Proc == (void*)0x3) || (Proc == (void*)-1))
+    Proc = (void *)GetProcAddress(OpenGlModule, Name);
+  return Proc;
+}
 
-////////////////////////
-// FILES
-function file_props SysGetFileProps(str8 Path);
-function str8 SysOpenFile  (pool *Pool,  str8 Path);
-function b32  SysSaveFile  (str8  Data,  str8 Path);
-function b32  SysRenameFile(str8  Old,   str8 New);
-function b32  SysDeleteFile(str8  Path);
-function b32  SysCreateDir (str8  Path);
-function b32  SysDeleteDir (str8  Path);
+function void _Win32OpenGlInit(void) {
+  Assert(_GlobalWin32Wnd.Handle);
 
-#endif
+  HMODULE OpenGlModule = LoadLibraryA("opengl32.dll");
+
+  wgl_create_context_proc   *WglCreateContextProc  = cast(wgl_create_context_proc*,   GetProcAddress(OpenGlModule, "wglCreateContext"));
+  wgl_get_proc_address_proc *WglGetProcAddressProc = cast(wgl_get_proc_address_proc*, GetProcAddress(OpenGlModule, "wglGetProcAddress"));
+
+  _Win32GlMakeCurrentProc = cast(wgl_make_current_proc*, GetProcAddress(OpenGlModule, "wglMakeCurrent"));
+  _Win32DeleteContextProc = cast(wgl_delete_context_proc*,   GetProcAddress(OpenGlModule, "wglDeleteContext"));
+
+  WNDCLASSW DummyClass = {0};
+  DummyClass.lpfnWndProc   = DefWindowProcW;
+  DummyClass.hInstance     = _GlobalWin32Wnd.Instance;
+  DummyClass.lpszClassName = L"dummy class";
+  RegisterClassW(&DummyClass);
+
+  HWND DummyWindowHandle  = CreateWindowW(L"dummy class", L"dummy title", WS_TILEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, _GlobalWin32Wnd.Instance, 0);
+  HDC  DummyDeviceContext = GetDC(DummyWindowHandle);
+
+  PIXELFORMATDESCRIPTOR DummyPixelFormatDescriptor = {0};
+  DummyPixelFormatDescriptor.nSize      = sizeof(DummyPixelFormatDescriptor);
+  DummyPixelFormatDescriptor.nVersion   = 1;
+  DummyPixelFormatDescriptor.dwFlags    = PFD_SUPPORT_OPENGL;
+  DummyPixelFormatDescriptor.iPixelType = PFD_TYPE_RGBA;
+  DummyPixelFormatDescriptor.cColorBits = 24;
+
+  INT DummyPixelFormatIdx = ChoosePixelFormat(DummyDeviceContext, &DummyPixelFormatDescriptor);
+  SetPixelFormat(DummyDeviceContext, DummyPixelFormatIdx, &DummyPixelFormatDescriptor);
+
+  HGLRC DummyOpenglContext = WglCreateContextProc(DummyDeviceContext);
+  _Win32GlMakeCurrentProc(DummyDeviceContext, DummyOpenglContext);
+  
+  wgl_choose_pixel_format_arb_proc    *WglChoosePixelFormatARBProc    = cast(wgl_choose_pixel_format_arb_proc*,    WglGetProcAddressProc("wglChoosePixelFormatARB"));
+  wgl_create_context_attribs_arb_proc *WglCreateContextAttribsARBProc = cast(wgl_create_context_attribs_arb_proc*, WglGetProcAddressProc("wglCreateContextAttribsARB"));
+
+  _Win32GlMakeCurrentProc(null, null);
+  ReleaseDC(DummyWindowHandle, DummyDeviceContext);
+  _Win32DeleteContextProc(DummyOpenglContext);
+  DestroyWindow(DummyWindowHandle);
+
+  INT FormatAttribs[] = {
+    WGL_DRAW_TO_WINDOW_ARB, true,
+    WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB,
+    WGL_SWAP_METHOD_ARB,    WGL_SWAP_EXCHANGE_ARB,
+    WGL_SUPPORT_OPENGL_ARB, true,
+    WGL_DOUBLE_BUFFER_ARB,  true,
+    WGL_PIXEL_TYPE_ARB,     WGL_TYPE_RGBA_ARB,
+    WGL_COLOR_BITS_ARB,     24,
+    WGL_RED_BITS_ARB,       8,
+    WGL_GREEN_BITS_ARB,     8,
+    WGL_BLUE_BITS_ARB,      8,
+    0,
+  };
+  INT  PixelFormatIdx  = 0;
+  UINT NumberOfFormats = 0;
+  WglChoosePixelFormatARBProc(_GlobalWin32Wnd.DeviceCtx, FormatAttribs, null, 1, &PixelFormatIdx, &NumberOfFormats);
+
+  PIXELFORMATDESCRIPTOR PixelFormatDescriptor = {0};
+  SetPixelFormat(_GlobalWin32Wnd.DeviceCtx, PixelFormatIdx, &PixelFormatDescriptor);
+
+  INT ContextAttribs[] = {
+    WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+    WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+    WGL_CONTEXT_FLAGS_ARB,         WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
+    WGL_CONTEXT_PROFILE_MASK_ARB,  WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+    0
+  };
+  _Win32GlobalHglrc = WglCreateContextAttribsARBProc(_GlobalWin32Wnd.DeviceCtx, 0, ContextAttribs);
+  _Win32GlMakeCurrentProc(_GlobalWin32Wnd.DeviceCtx, _Win32GlobalHglrc);
+
+  #define Assign(type, Name) Gl##Name = cast(type, _Win32OpenGlGetAnyFuncAddress(WglGetProcAddressProc, OpenGlModule, Stringify(gl##Name)));
+  SELECTED_OPENGL_FUNCTIONS(Assign)
+  #undef Assign
+}
+function void _Win32OpenGlBeginFrame(void) {
+  _GlobalWin32Wnd.DeviceCtx = GetDC(_GlobalWin32Wnd.Handle);
+  _Win32GlMakeCurrentProc( _GlobalWin32Wnd.DeviceCtx, _Win32GlobalHglrc);
+}
+function void _Win32OpenGlEndFrame(void) {
+  SwapBuffers(_GlobalWin32Wnd.DeviceCtx);
+  ReleaseDC(_GlobalWin32Wnd.Handle, _GlobalWin32Wnd.DeviceCtx);
+}
+function void _Win32OpenGlWndKill(void) {
+  _Win32GlMakeCurrentProc(_GlobalWin32Wnd.DeviceCtx, 0);
+  _Win32DeleteContextProc(_Win32GlobalHglrc);
+}
+
+#endif//OS_WIN
 
 #endif//FOUNDATION_IMPL
