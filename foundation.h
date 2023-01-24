@@ -622,6 +622,7 @@ typedef struct _wnd {
   r64 FrameDelta;
 
   r32 w, h;
+  r32 MouseX, MouseY;
 } wnd;
 function wnd *SysInitWnd(void);
 function void SysWndPull(wnd *Wnd);
@@ -1673,12 +1674,20 @@ function void SysWndPull(wnd *Wnd) {
   Wnd->w = ClientRect.right  - ClientRect.left;
   Wnd->h = ClientRect.bottom - ClientRect.top;
 
+  POINT WindowPos = {ClientRect.left, ClientRect.top};
+  ClientToScreen(_GlobalWin32Wnd.Handle, &WindowPos);
+
+  POINT MousePos;
+  GetCursorPos(&MousePos);
+  Wnd->MouseX = MousePos.x - WindowPos.x;
+  Wnd->MouseY = MousePos.y - WindowPos.y;
+
   _Win32OpenGlBeginFrame();
 }
 function void SysWndPush(wnd *Wnd) {
   _Win32OpenGlEndFrame();
 
-  r64   FrameDelta    = cast(r64, SysGetTicks() - _GlobalWin32Wnd.FrameStartTicks)/_GlobalWin32TicksPerSecond;
+  r64   FrameDelta    = (cast(r64, SysGetTicks()) - cast(r64, _GlobalWin32Wnd.FrameStartTicks))/_GlobalWin32TicksPerSecond;
   DWORD TimeToSleepMs = cast(DWORD, (1.0f/60.f - FrameDelta))*Thousand(1);
   if (TimeToSleepMs > 0) 
     Sleep(TimeToSleepMs);
@@ -1702,28 +1711,22 @@ function void SysKillWnd(wnd *Wnd) {
 
 #define SELECTED_OPENGL_FUNCTIONS(Macro)                           \
   Macro(PFNGLENABLEPROC,                  Enable)                  \
-  Macro(PFNGLBLENDFUNCSEPARATEPROC,       BlendFuncSeparate)       \
   Macro(PFNGLVIEWPORTPROC,                Viewport)                \
   Macro(PFNGLCLEARCOLORPROC,              ClearColor)              \
   Macro(PFNGLCLEARPROC,                   Clear)                   \
+  Macro(PFNGLBLENDFUNCPROC,               BlendFunc)               \
+  Macro(PFNGLGENTEXTURESPROC,             GenTextures)             \
+  Macro(PFNGLBINDTEXTUREPROC,             BindTexture)             \
+  Macro(PFNGLDELETETEXTURESPROC,          DeleteTextures)          \
+  Macro(PFNGLTEXIMAGE1DPROC,              TexImage1D)              \
+  Macro(PFNGLTEXIMAGE2DPROC,              TexImage2D)              \
+  Macro(PFNGLACTIVETEXTUREPROC,           ActiveTexture)           \
+  Macro(PFNGLTEXTUREPARAMETERIPROC,       TextureParameteri)       \
   Macro(PFNGLGENBUFFERSPROC,              GenBuffers)              \
   Macro(PFNGLBUFFERSUBDATAPROC,           BufferSubData)           \
+  Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
   Macro(PFNGLBINDBUFFERPROC,              BindBuffer)              \
   Macro(PFNGLBUFFERDATAPROC,              BufferData)              \
-  Macro(PFNGLCREATESHADERPROC,            CreateShader)            \
-  Macro(PFNGLSHADERSOURCEPROC,            ShaderSource)            \
-  Macro(PFNGLCOMPILESHADERPROC,           CompileShader)           \
-  Macro(PFNGLGETSHADERIVPROC,             GetShaderiv)             \
-  Macro(PFNGLGETSHADERINFOLOGPROC,        GetShaderInfoLog)        \
-  Macro(PFNGLCREATEPROGRAMPROC,           CreateProgram)           \
-  Macro(PFNGLATTACHSHADERPROC,            AttachShader)            \
-  Macro(PFNGLLINKPROGRAMPROC,             LinkProgram)             \
-  Macro(PFNGLGETPROGRAMIVPROC,            GetProgramiv)            \
-  Macro(PFNGLGETPROGRAMINFOLOGPROC,       GetProgramInfoLog)       \
-  Macro(PFNGLUSEPROGRAMPROC,              UseProgram)              \
-  Macro(PFNGLGETUNIFORMLOCATIONPROC,      GetUniformLocation)      \
-  Macro(PFNGLUNIFORM4FPROC,               Uniform4f)               \
-  Macro(PFNGLDELETESHADERPROC,            DeleteShader)            \
   Macro(PFNGLVERTEXATTRIBPOINTERPROC,     VertexAttribPointer)     \
   Macro(PFNGLVERTEXATTRIBDIVISORPROC,     VertexAttribDivisor)     \
   Macro(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray) \
@@ -1732,10 +1735,25 @@ function void SysKillWnd(wnd *Wnd) {
   Macro(PFNGLDRAWARRAYSPROC,              DrawArrays)              \
   Macro(PFNGLDRAWARRAYSINSTANCEDPROC,     DrawArraysInstanced)     \
   Macro(PFNGLDELETEVERTEXARRAYSPROC,      DeleteVertexArrays)      \
-  Macro(PFNGLDELETEBUFFERSPROC,           DeleteBuffers)           \
+  Macro(PFNGLCREATESHADERPROC,            CreateShader)            \
+  Macro(PFNGLDELETESHADERPROC,            DeleteShader)            \
+  Macro(PFNGLSHADERSOURCEPROC,            ShaderSource)            \
+  Macro(PFNGLCOMPILESHADERPROC,           CompileShader)           \
+  Macro(PFNGLGETSHADERIVPROC,             GetShaderiv)             \
+  Macro(PFNGLGETSHADERINFOLOGPROC,        GetShaderInfoLog)        \
+  Macro(PFNGLATTACHSHADERPROC,            AttachShader)            \
+  Macro(PFNGLCREATEPROGRAMPROC,           CreateProgram)           \
   Macro(PFNGLDELETEPROGRAMPROC,           DeleteProgram)           \
+  Macro(PFNGLLINKPROGRAMPROC,             LinkProgram)             \
+  Macro(PFNGLGETPROGRAMIVPROC,            GetProgramiv)            \
+  Macro(PFNGLGETPROGRAMINFOLOGPROC,       GetProgramInfoLog)       \
+  Macro(PFNGLUSEPROGRAMPROC,              UseProgram)              \
+  Macro(PFNGLGETUNIFORMLOCATIONPROC,      GetUniformLocation)      \
   Macro(PFNGLGETERRORPROC,                GetError)                \
-  Macro(PFNGLUNIFORM2FPROC,               Uniform2f)
+  Macro(PFNGLUNIFORM1IPROC,               Uniform1i)               \
+  Macro(PFNGLUNIFORM1FPROC,               Uniform1f)               \
+  Macro(PFNGLUNIFORM2FPROC,               Uniform2f)               \
+  Macro(PFNGLUNIFORM4FPROC,               Uniform4f)
 
 #define Decl(type, Name) type Gl##Name;
   SELECTED_OPENGL_FUNCTIONS(Decl)
