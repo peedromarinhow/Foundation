@@ -1,3 +1,6 @@
+#define ENABLE_ASSERT
+#define DEBUG
+
 #define FOUNDATION_IMPL
 #include "foundation.h"
 #undef  FOUNDATION_IMPL
@@ -26,10 +29,9 @@ function struct id_and_log _OpenGlCompileShader(pool *Pool, const c8 *Src, u32 T
   }
   return (struct id_and_log){Shader, {LogStr, LogLen}};
 }
-function struct id_and_log _OpenGlLinkProgram(pool *Pool, u32 VertShader, u32 GeomShader, u32 FragShader) {
+function struct id_and_log _OpenGlLinkProgram(pool *Pool, u32 VertShader, u32 FragShader) {
   u32 Program = GlCreateProgram();
   GlAttachShader(Program, VertShader);
-  GlAttachShader(Program, GeomShader);
   GlAttachShader(Program, FragShader);
   GlLinkProgram(Program);
   c8 *LogStr = null;
@@ -51,128 +53,131 @@ function struct id_and_log _OpenGlLinkProgram(pool *Pool, u32 VertShader, u32 Ge
 typedef union _vert {
   r32 Cmp[8];
   struct {
-    r32v2 Pos;
-    r32v2 Tex;
-    r32v4 Clr;
+    r32v2 xy;
+    r32v2 uv;
+    r32v4 rgba;
   };
 } vert;
 
-const u32 Vertn = 1024;
+typedef struct _gl_ren {
+  vert *Buff;
+  u32   Used;
+  u32   Vao, Vbo, Prog;
+} gl_ren;
+function void GlInitRenderer(pool *Pool, gl_ren *Ren, u32 Vertn, const c8 *VertShaderSrc, const c8 *FragShaderSrc) {
+  Ren->Used = 0;
+  Ren->Buff = PoolPushZeros(Pool, Vertn*sizeof(vert));
 
-inline void PushVert(vert *Buff, i32 *Used, r32 x, r32 y, r32 u, r32 v, r32 r, r32 g, r32 b, r32 a) {
-  Buff[*Used].Cmp[0] = x;
-  Buff[*Used].Cmp[1] = y;
-  Buff[*Used].Cmp[2] = u;
-  Buff[*Used].Cmp[3] = v;
-  Buff[*Used].Cmp[4] = r;
-  Buff[*Used].Cmp[5] = g;
-  Buff[*Used].Cmp[6] = b;
-  Buff[*Used].Cmp[7] = a;
-  *Used += 1;
+  GlGenVertexArrays(1, &Ren->Vao);
+  GlBindVertexArray(Ren->Vao);
+
+  GlGenBuffers(1, &Ren->Vbo);
+  GlBindBuffer(GL_ARRAY_BUFFER, Ren->Vbo);
+  GlBufferData(GL_ARRAY_BUFFER, Vertn, Ren->Buff, GL_DYNAMIC_DRAW);
+
+  GlEnableVertexAttribArray(0);
+  GlVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(vert), &Member(vert, xy));
+
+  GlEnableVertexAttribArray(1);
+  GlVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(vert), &Member(vert, uv));
+
+  GlEnableVertexAttribArray(2);
+  GlVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(vert), &Member(vert, rgba));
+
+  //.link: https://learnopengl.com/Getting-started/Hello-Triangle
+  struct id_and_log VertShader    = _OpenGlCompileShader(Pool, VertShaderSrc, GL_VERTEX_SHADER);
+  struct id_and_log FragShader    = _OpenGlCompileShader(Pool, FragShaderSrc, GL_FRAGMENT_SHADER);
+  struct id_and_log ShaderProgram = _OpenGlLinkProgram(Pool, VertShader.Id, FragShader.Id);
+  GlDeleteShader(VertShader.Id);
+  GlDeleteShader(FragShader.Id);
+
+  Ren->Prog = ShaderProgram.Id;
+
+  GlBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  GlEnable(GL_BLEND);
+  GlEnable(GL_FRAMEBUFFER_SRGB);
+}
+inline void GlPushVert(gl_ren *Ren, r32 x, r32 y, r32 u, r32 v, r32 r, r32 g, r32 b, r32 a) {
+  vert *Buff = Ren->Buff;
+  u32   Used = Ren->Used;
+  Buff[Used].Cmp[0] = x;
+  Buff[Used].Cmp[1] = y;
+  Buff[Used].Cmp[2] = u;
+  Buff[Used].Cmp[3] = v;
+  Buff[Used].Cmp[4] = r;
+  Buff[Used].Cmp[5] = g;
+  Buff[Used].Cmp[6] = b;
+  Buff[Used].Cmp[7] = a;
+  Ren->Used += 1;
+}
+function void GlUpdate(gl_ren *Ren, r32 WndW, r32 WndH) {
+    GlViewport(0, 0, WndW, WndH);
+    GlClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+    GlClear(GL_COLOR_BUFFER_BIT);
+
+    u32 Prog = Ren->Prog;
+    GlUseProgram(Prog);
+    GlUniform2f(GlGetUniformLocation(Prog, "WndDim"), WndW, WndH);
+    // GlUniform1i(GlGetUniformLocation(Prog, "Texture"), 0);
+
+    u32 Used = Ren->Used;
+    GlBufferSubData(GL_ARRAY_BUFFER, 0, Used*sizeof(vert), Ren->Buff);
+    GlDrawArrays(GL_TRIANGLES, 0, Used);
+    Ren->Used = 0;
 }
 
 function i32 Main(str8 ArgStr) {
   pool *Pool = PoolReserve(0);
   wnd  *Wnd  = SysInitWnd();
 
-  i32   Used = 0;
-  vert *Verts = PoolPushZeros(Pool, Vertn*sizeof(vert));
-
-  u32 Vao, Vbo;
-  GlGenVertexArrays(1, &Vao);
-  GlBindVertexArray(Vao);
-
-  GlGenBuffers(1, &Vbo);
-  GlBindBuffer(GL_ARRAY_BUFFER, Vbo);
-  GlBufferData(GL_ARRAY_BUFFER, Vertn, Verts, GL_DYNAMIC_DRAW);
-
-  GlEnableVertexAttribArray(0);
-  GlVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(vert), &Member(vert, Pos));
-
-  GlEnableVertexAttribArray(1);
-  GlVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(vert), &Member(vert, Tex));
-
-  GlEnableVertexAttribArray(2);
-  GlVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(vert), &Member(vert, Clr));
-
   const c8 *VertShaderSrc =
     "#version 330 core\n"
     "uniform vec2 WndDim;\n"
-    "layout(location = 0) in vec2 Pos;\n"
-    "layout(location = 1) in vec2 Tex;\n"
-    "layout(location = 2) in vec4 Clr;\n"
-    // "out vec2 FragPos;\n"
-    // "out vec2 FragTex;\n"
-    // "out vec4 FragClr;\n"
+    "layout(location = 0) in vec2 xy;\n"
+    "layout(location = 1) in vec2 uv;\n"
+    "layout(location = 2) in vec4 rgba;\n"
+
+    "out vec2 Frag_xy;\n"
+    "out vec2 Frag_uv;\n"
+    "out vec4 Frag_rgba;\n"
+
     "void main() {\n"
-    // "  FragPos = Pos;\n"
-    // "  FragTex = Tex;\n"
-    // "  FragClr = Clr;\n"
-    "  gl_Position = vec4(2*Pos/WndDim - vec2(1, 1), 0.0, 1.0);\n"
-    "}\n"
-  ;
-  const c8 *GeomShaderSrc =
-    "#version 330 core\n"
-    "layout (lines) in;\n"
-    "layout (triangle_strip, max_vertices = 4) out;\n"
-    "void main() {\n"
-    "  vec4 p = gl_in[0].gl_Position;\n"
-    "  vec4 s = gl_in[1].gl_Position - gl_in[0].gl_Position;\n"
-    "  gl_Position = p;\n"
-    "  EmitVertex();\n"
-    "  gl_Position = p + vec4(s.x, 0, 0, 0);\n"
-    "  EmitVertex();\n"
-    "  gl_Position = p + vec4(0, s.y, 0, 0);\n"
-    "  EmitVertex();\n"
-    "  gl_Position = p + s;\n"
-    "  EmitVertex();\n"
-    "  EndPrimitive();\n"
+    "  Frag_xy  = xy;\n"
+    "  Frag_uv = uv;\n"
+    "  Frag_rgba = rgba;\n"
+    "  gl_Position = vec4(2*xy/WndDim - vec2(1, 1), 0.0, 1.0);\n"
     "}\n"
   ;
   const c8 *FragShaderSrc =
     "#version 330 core\n"
-    "out vec4 OutClr;\n"
+    "uniform sampler2D Texture;"
+
+    "in  vec2 Frag_xy;\n"
+    "in  vec2 Frag_uv;\n"
+    "in  vec4 Frag_rgba;\n"
+
+    "out vec4 OutColor;\n"
+
     "void main() {\n"
-    "  OutClr = vec4(1, 0.2, 1, 1);\n"
+    // "  OutColor = Frag_rgba*texture(Texture, Frag_uv.st);\n"
+    "  OutColor = Frag_rgba;\n"
     "}\n"
   ;
 
-  //.link: https://learnopengl.com/Getting-started/Hello-Triangle
-  struct id_and_log VertShader    = _OpenGlCompileShader(Pool, VertShaderSrc, GL_VERTEX_SHADER);
-  struct id_and_log GeomShader    = _OpenGlCompileShader(Pool, GeomShaderSrc, GL_GEOMETRY_SHADER);
-  struct id_and_log FragShader    = _OpenGlCompileShader(Pool, FragShaderSrc, GL_FRAGMENT_SHADER);
-  struct id_and_log ShaderProgram = _OpenGlLinkProgram(Pool, VertShader.Id, GeomShader.Id, FragShader.Id);
-  GlDeleteShader(VertShader.Id);
-  GlDeleteShader(GeomShader.Id);
-  GlDeleteShader(FragShader.Id);
-
-  u32 Error = GlGetError();
-
-  GlBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  GlEnable(GL_BLEND);
-  GlEnable(GL_FRAMEBUFFER_SRGB);
+  gl_ren Ren;
+  GlInitRenderer(Pool, &Ren, 1204, VertShaderSrc, FragShaderSrc);
 
   while (!Wnd->Finish) {
     SysWndPull(Wnd);
 
-    r32 WndW   = Wnd->w,      WndH   = Wnd->h;
-    r32 MouseX = Wnd->MouseX, MouseY = WndH-Wnd->MouseY;
+    r32 MouseX = Wnd->MouseX,
+        MouseY = Wnd->h - Wnd->MouseY;
 
-    GlViewport(0, 0, WndW, WndH);
-    GlClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-    GlClear(GL_COLOR_BUFFER_BIT);
+    GlPushVert(&Ren,    100,    100, 0, 0, 1, 0, 0, 1);
+    GlPushVert(&Ren,    200,    200, 0, 0, 0, 1, 0, 1);
+    GlPushVert(&Ren, MouseX, MouseY, 0, 0, 0, 0, 1, 1);
 
-    GlUseProgram(ShaderProgram.Id);
-    GlUniform2f(GlGetUniformLocation(ShaderProgram.Id, "WndDim"), WndW, WndH);
-
-    PushVert(Verts, &Used, 100, 100, 0, 0, 1, 0, 0, 1);
-    PushVert(Verts, &Used, 200, 200, 0, 0, 1, 0, 0, 1);
-    PushVert(Verts, &Used, MouseX,    MouseY,    0, 0, 0, 1, 0, 1);
-    PushVert(Verts, &Used, MouseX+10, MouseY+10, 0, 0, 0, 1, 0, 1);
-
-    GlBufferSubData(GL_ARRAY_BUFFER, 0, Used*sizeof(vert), Verts);
-    GlDrawArrays(GL_LINES, 0, Used);
-    Used = 0;
+    GlUpdate(&Ren, Wnd->w, Wnd->h);
 
     SysWndPush(Wnd);
   }
