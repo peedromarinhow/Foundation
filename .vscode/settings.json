@@ -10,6 +10,14 @@
     "utility": "c",
     "xmemory": "c",
     "xtr1common": "c",
-    "xutility": "c"
-  }
+    "xutility": "c",
+    "format": "c",
+    "ratio": "c",
+    "xstring": "c",
+    "system_error": "c",
+    "xlocale": "c",
+    "initializer_list": "c",
+    "list": "c"
+  },
+  "C_Cpp.errorSquiggles": "disabled"
 }
